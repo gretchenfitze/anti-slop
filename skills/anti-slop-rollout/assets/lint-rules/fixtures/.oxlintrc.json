@@ -1,0 +1,7 @@
+{
+  "jsPlugins": ["../index.cjs"],
+  "categories": { "correctness": "off" },
+  "rules": {
+    "local/no-rounding-in-services": "error"
+  }
+}

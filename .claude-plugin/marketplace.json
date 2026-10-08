@@ -1,0 +1,14 @@
+{
+  "name": "gretchenfitze-anti-slop",
+  "description": "Anti-AI-slop checks for TypeScript and React repos: audit, plan, and roll out one PR at a time.",
+  "owner": {
+    "name": "Evil Martians"
+  },
+  "plugins": [
+    {
+      "name": "anti-slop",
+      "source": "./",
+      "description": "anti-slop-audit measures and plans; anti-slop-rollout carries out one plan step as a PR."
+    }
+  ]
+}
