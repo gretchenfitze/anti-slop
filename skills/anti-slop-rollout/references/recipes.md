@@ -59,7 +59,7 @@ Each check runs at the cheapest moment that still catches what it's for. The pla
 |---|---|---|
 | Every agent turn and commit, on changed files | lint rules (presets, boundaries, project rules), react-doctor | the agent Stop hook and pre-commit (section 6); react-doctor `--scope changed --base HEAD` takes about 13 s |
 | Every agent turn, whole project but fast | knip (about 3 s with `--cache`), jscpd new clones (about 11 s with `--baseline-from-ref HEAD --fail-on-new-clones`) | add to the Stop hook only once the backlog is zero or the check reports new findings only |
-| Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor on the diff, mutation testing on changed files (non-blocking) | one CI job per check (section 10) |
+| Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor on the diff (blocks on errors once they're zero), mutation testing on changed files (non-blocking) | one CI job per check (section 10) |
 | Weekly | full jscpd report (`dup:top`), full react-doctor, full mutation run | the scheduled report below, when the plan has a Scheduled row |
 | Re-audit | ignore lists, rules that caught nothing, new numbers | rerun `anti-slop-audit` when the plan says |
 
@@ -393,25 +393,25 @@ GitHub Actions, matching the project's existing setup steps:
 
 ## react-doctor
 
-**Setup by hand, not with `react-doctor install --yes`.** That command also adds a GitHub workflow, writes a pre-commit block straight into `.git/hooks` (unversioned, and alongside whatever lefthook or husky put there), and adds a `doctor` script that runs `npx react-doctor@latest` with telemetry on. A `doctor` script is also shadowed by `pnpm doctor`. Instead:
+Every React project gets it in the review flow, in three parts: set it up as a plain command, clean up the errors, then gate on them. Warnings are reported and fixed when worthwhile.
+
+**Setup** goes in with the other detectors, with no gate yet. **Set it up by hand rather than with `react-doctor install --yes`.** That command also writes a pre-commit block straight into `.git/hooks` (unversioned, and alongside whatever lefthook or husky put there) and adds a `doctor` script that runs `npx react-doctor@latest` with telemetry on, which `pnpm doctor` shadows anyway. Instead:
 
 - **Install it** as a devDependency with the project's package manager.
 - **Add a script:** `"react-doctor": "react-doctor --no-telemetry --no-supply-chain"`. In a single-package repo, add `--project .` to that and to the hook and CI commands below: react-doctor otherwise also scans nested projects in gitignored folders, like worktrees. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. If the team wants that scan, they can drop the flag knowingly.
 
-**Hook:** `react-doctor --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error` in the Stop hook. It reports only findings in the agent's changes.
+**Errors are mandatory, and get cleaned up before any gate:**
 
-**CI:** a job running `react-doctor --no-telemetry --no-supply-chain --scope changed --base origin/${{ github.base_ref }} --blocking error` with `fetch-depth: 0`. `react-doctor ci install` generates a workflow that also comments on PRs; use it only if the team wants the comments.
+- **Fix every error,** in one cleanup step or several, split by directory or rule when they don't fit one PR. Gating first would hand the backlog to whoever next touches a file with an old error.
+- **Before calling one a false positive,** check whether cleanup happens another way (an array of observers disconnected together, say). Build-time `eval` or import-metadata findings in scripts are usually intentional: exclude those paths in config, with the reason.
 
-**Its agent skill is opt-in.** The package ships one at `node_modules/react-doctor/dist/skills/react-doctor/`. Before offering it, tell the team what it does:
+**Gate once errors are zero,** in the hook and CI together. `--scope changed` keeps both fast, and with a clean codebase `--blocking error` fires only on errors a change introduces.
 
-- It runs `npx react-doctor@latest` (unpinned, telemetry on).
-- It treats a score drop as something to fix before committing, the score-as-target pattern this rollout avoids.
-- Its `/doctor` flow `curl`s a playbook from react.doctor and follows every step in it, so a third party can change what the agent does in this repo between runs.
+- **Hook:** `react-doctor --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error` in the Stop hook.
+- **CI:** a job running `react-doctor --no-telemetry --no-supply-chain --scope changed --base origin/${{ github.base_ref }} --blocking error` with `fetch-depth: 0`. `react-doctor ci install` generates a workflow that also comments findings on PRs; use it instead if the team wants the comments, and add the flags.
 
-The Stop hook above already gives the agent the same findings deterministically. If the team still wants the skill, copy it into the agent's skills directory and edit it in the PR: point it at the local binary with `--no-telemetry --no-supply-chain`, drop the score rule, and drop the remote-playbook section unless the team accepts it explicitly.
+**Warnings are optional:** they never block. Fix them in code a PR already touches. A rule with a real cluster of hits can become its own cleanup step; the rest stay in the scheduled report.
 
-**Backlog:**
+**The score is a diagnostic.** Don't put a number on it in CI.
 
-- **Triage errors first.** Missing effect cleanup and observer disconnects are often real leaks, but check whether cleanup happens some other way (an array of observers disconnected together, say). Build-time `eval` or import-metadata findings in scripts are usually intentional.
-- **Warnings:** each rule that's worth it becomes a later plan step.
-- **The score is a diagnostic.** Don't put a number on it in CI.
+**Its agent skill is optional.** The package ships one at `node_modules/react-doctor/dist/skills/react-doctor/`. The Stop hook already gives the agent the findings, so the skill is extra guidance on how to fix them. If the team wants it, copy it into the agent's skills directory and adjust it in the PR: point it at the local binary with `--no-telemetry --no-supply-chain` instead of `npx react-doctor@latest`, and drop the rule that treats a score drop as something to fix. Its `/doctor` flow fetches a playbook from react.doctor at run time; keep that section only if the team is fine with the agent following remote instructions.

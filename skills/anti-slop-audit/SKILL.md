@@ -101,6 +101,7 @@ One step is one PR that a reviewer can read in one sitting. Order them so each s
 - **Cleanup right after its detector:** knip's verified dead files and exports.
 - **Small counts:** fix everything and make the rule an error in the same PR. **Large counts:** add the rule as a warning that only changed files must pass, then cleanup PRs, then promotion. Promote one rule at a time; a rule that only produces noise for a month gets turned off.
 - **`no-non-null-assertion` before `noUncheckedIndexedAccess`**, so the type fixes can't take the `!` shortcut.
+- **react-doctor errors are mandatory,** where React is present: cleanup steps fix every error, then one step adds the hook and PR CI job blocking on errors. Warnings report without blocking.
 - **CI gates last,** once the count is zero or the check fails only on new findings.
 - **The scheduled report** is its own step, placed after the checks it runs, when section 5 gave it a row.
 - **If the user wants a single first step,** the post's own order is the contract (if there's an API), then mutation testing, with the CI gate keeping both.

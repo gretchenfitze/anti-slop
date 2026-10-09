@@ -2,7 +2,7 @@
 
 The moves come from [Yuri Mikhin](https://github.com/mikhin)'s [10 anti-AI slop moves for frontend projects going faster than humans can review](https://evilmartians.com/chronicles/ten-anti-ai-slop-moves-for-frontend-projects-going-faster-than-humans-can-review); "the post" below means that article.
 
-One section per move. Each says what it catches, when it fits, what "done" looks like, how to read the probe's numbers, and what it costs. Moves 1–6 keep extra code from being written, 7–9 find what's already there, 10 makes the rest mandatory. react-doctor is listed last because it straddles both.
+One section per move. Each says what it catches, when it fits, what "done" looks like, how to read the probe's numbers, and what it costs. Moves 1–6 keep extra code from being written, 7–9 find what's already there, 10 makes the rest mandatory. react-doctor is listed last: it isn't one of the post's ten, but every React project should run it in review.
 
 Statuses for the plan: **done** (in place and enforced), **partial** (in place but not enforced, or only some of it), **missing**, **n/a** (doesn't fit this project, with the reason).
 
@@ -155,10 +155,15 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 ## react-doctor
 
-**What it is:** React-specific analysis (effects, state, hydration, performance, security) with a score. It scans the project, runs on changed files (`--scope changed --base <ref>`), and can install a CI workflow and its own agent skill.
+**What it is:** React-specific analysis (effects, state, hydration, performance, security) with a score. It scans the whole project or only changed files (`--scope changed --base <ref>`), and its errors are mostly real bugs: missing effect cleanup, leaked observers, unsafe patterns.
 
-**Plan it as a pinned CLI** in the agent hook and CI, not through `react-doctor install`: that command writes a git hook and a workflow besides the skill. Its skill is opt-in: it runs `@latest` with telemetry on, treats the score as a target, and its `/doctor` flow fetches and follows a remote playbook. The rollout recipe has the details.
+**Recommend it for every React project** as part of the review flow: a PR CI job that blocks on errors, plus the agent hook. Its severity split sets the rollout:
 
-**Probe:** `doctor.*`. Errors deserve individual triage. Effect cleanup and observer disconnect findings are often real leaks. Findings in build-time scripts (eval, import metadata) are usually intentional.
+- **Errors are mandatory, cleanup first.** The plan fixes all of them, then gates the hook and CI with `--blocking error`. Gating earlier hands the backlog to whoever next touches a file with an old error. Before calling one a false positive, check whether cleanup happens another way (an array of observers disconnected together, say). A real false positive gets a config-level ignore with the reason.
+- **Warnings are recommended, not mandatory.** They're reported but don't block. Fix them in code you're already touching. A rule with a real cluster of hits can become a cleanup step.
 
-**Notes for the plan:** always run it with `--no-telemetry --no-supply-chain`. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. Name the package script `react-doctor`, not `doctor`: `pnpm doctor` is a pnpm built-in that runs instead and reports success. Its license is a modified MIT that forbids using it as AI training data or reselling it as a hosted service, which is fine for running it in a project. Its score is a diagnostic, not a target, just like the mutation score.
+**Probe:** `doctor.*`. `bySeverity.error` sizes the cleanup, so list the errors in the plan. Findings in build-time scripts (eval, import metadata) are usually intentional: exclude those paths rather than count them.
+
+**Setup:** add it as a pinned devDependency and call it from a package script, the agent hook, and CI. Don't use `react-doctor install`, which writes straight into `.git/hooks` and adds an unpinned `doctor` script. The rollout recipe has the commands.
+
+**Notes for the plan:** run it with `--no-telemetry --no-supply-chain`. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. Name the package script `react-doctor`, not `doctor`: `pnpm doctor` is a pnpm built-in that runs instead and reports success. Its license is a modified MIT that forbids using it as AI training data or reselling it as a hosted service, which is fine for running it in a project. Its score is a diagnostic, not a target, just like the mutation score.
