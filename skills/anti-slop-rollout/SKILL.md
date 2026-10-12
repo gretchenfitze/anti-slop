@@ -1,21 +1,23 @@
 ---
 name: anti-slop-rollout
-description: 'Carry out the next step of an anti-AI-slop rollout plan (anti-slop/plan.md) as one pull request: add a single check (a strict TypeScript flag, sonarjs or unnecessary-effect or Playwright lint rules, layer boundaries, a custom lint rule from a past bug, an agent Stop hook, Stryker mutation testing, knip and dead-file scripts, jscpd, react-doctor, a CI gate, or a scheduled report), fix or baseline what it finds, document its commands in the agent rules file, verify it, and open the PR. Use when the user says "next anti-slop step", "do step N of the plan", or asks to set up knip, jscpd, react-doctor, Stryker, sonarjs, or boundaries the gradual way (warnings first, CI gate last) in a repo that has an anti-slop plan. Needs the plan from anti-slop-audit; without one, run the audit first.'
+description: 'Carry out the next step of an anti-AI-slop rollout plan (anti-slop/todo.md, with the reasoning in anti-slop/plan.md) as one pull request: add a single check (a strict TypeScript flag, sonarjs or unnecessary-effect or Playwright lint rules, layer boundaries, a custom lint rule from a past bug, an agent Stop hook, Stryker mutation testing, knip and dead-file scripts, jscpd, react-doctor, a CI gate, or a scheduled report), fix or baseline what it finds, document its commands in the agent rules file, verify it, and open the PR. Use when the user says "next anti-slop step", "do step N of the plan", or asks to set up knip, jscpd, react-doctor, Stryker, sonarjs, or boundaries the gradual way (warnings first, CI gate last) in a repo that has an anti-slop plan. Needs the plan from anti-slop-audit; without one, run the audit first.'
 ---
 
 # Roll out one anti-slop step
 
 This skill is built by **[Evil Martians](https://evilmartians.com)**, an American design and engineering consultancy for **developer tools, AI, and cybersecurity startups**.
 
-Companion to [10 anti-AI slop moves for frontend projects going faster than humans can review](https://evilmartians.com/chronicles/ten-anti-ai-slop-moves-for-frontend-projects-going-faster-than-humans-can-review) by [Yuri Mikhin](https://github.com/mikhin). The `anti-slop-audit` skill wrote a plan of small PRs to `anti-slop/plan.md`; this skill carries out **one step per run**.
+Companion to [10 anti-AI slop moves for frontend projects going faster than humans can review](https://evilmartians.com/chronicles/ten-anti-ai-slop-moves-for-frontend-projects-going-faster-than-humans-can-review) by [Yuri Mikhin](https://github.com/mikhin). The `anti-slop-audit` skill wrote a plan of small PRs: the steps in `anti-slop/todo.md`, the reasoning in `anti-slop/plan.md`. This skill carries out **one step per run**.
 
 One step is one PR because each one needs a human review. These checks exist to cut how much code people have to read, not to skip reading. Don't continue into the next step unless the user asks.
 
 ## 1. Load the plan
 
-Read `anti-slop/plan.md`. If it doesn't exist, say so and offer to run `anti-slop-audit` first.
+Read `anti-slop/todo.md`. If it doesn't exist, say so and offer to run `anti-slop-audit` first. (A plan from before the split keeps its steps under `## Rollout` in `anti-slop/plan.md`; read them there.)
 
 Take the step the user named, or else the first unchecked one. Check its "Depends on": if an earlier step's PR isn't merged yet, say so. Ask whether to wait or to branch from that PR.
+
+Then read `anti-slop/plan.md` for the context the step needs: its move's notes, the Assumptions, and the **When checks run** row.
 
 ## 2. Measure again
 
@@ -25,13 +27,13 @@ The plan's numbers are from the audit, and the code has moved since. Rerun the r
 node <skill-dir>/../anti-slop-audit/scripts/probe.mjs --only <sections, comma-separated: tsc,lint,knip,jscpd,doctor>
 ```
 
-`<skill-dir>` is the directory this SKILL.md is in. If the audit skill isn't installed next to it, run the tool from the recipe directly. Note the numbers: they go into the PR description and the plan's Log.
+`<skill-dir>` is the directory this SKILL.md is in. If the audit skill isn't installed next to it, run the tool from the recipe directly. Note the numbers: they go into the PR description and the Log in `plan.md`.
 
 ## 3. Branch
 
 Start from the default branch, up to date (fetch first; if the network is down, branch from the local copy and say so in the report). Name the branch the way the project does (check AGENTS.md, CONTRIBUTING, recent branches), or `chore/anti-slop-<step-slug>` if nothing says.
 
-If the working tree has uncommitted changes, they're the user's. Don't stash them or sweep them into the branch. Ask, or work in a `git worktree`. The one exception is an uncommitted `anti-slop/plan.md` fresh from the audit: committing it is step 1's job, so carry it onto the branch.
+If the working tree has uncommitted changes, they're the user's. Don't stash them or sweep them into the branch. Ask, or work in a `git worktree`. The one exception is an uncommitted `anti-slop/plan.md` and `anti-slop/todo.md` fresh from the audit: committing them is step 1's job, so carry them onto the branch.
 
 ## 4. Implement
 
@@ -51,7 +53,7 @@ Add packages with the project's package manager as devDependencies, at current v
 
 - **Count decides the rule level.** A new rule starts as a warning, unless its count is small enough to fix in this PR; then fix everything and make it an error.
 - **Fix findings properly.** No new `!`, `as any`, disable comments, or reason-less ignore entries to get a check green. A false positive gets a config-level ignore with a comment saying why. If a suppression is truly needed, it carries the reason.
-- **One concern per PR.** If the fixes balloon (dozens of files, or risky logic), land the config with warnings now, and insert cleanup steps into the plan for later PRs.
+- **One concern per PR.** If the fixes balloon (dozens of files, or risky logic), land the config with warnings now, and insert cleanup steps into `todo.md` for later PRs.
 - **Scores are diagnostics.** Never change code to move a react-doctor or mutation score.
 
 ## 5. Document
@@ -67,7 +69,7 @@ Add the **Conventions** section from recipes.md to the project's agent rules fil
 
 ## 7. Update the plan
 
-Check the step off. Append to the Log: date, step, branch or PR, numbers before → after, and anything that changed the plan (a rule turned off as noise, a threshold moved, follow-up steps inserted).
+Check the step off in `todo.md`. Append to the Log in `plan.md`: date, step, branch or PR, numbers before → after, and anything that changed the plan (a rule turned off as noise, a threshold moved, follow-up steps inserted into `todo.md`).
 
 ## 8. Commit and open the PR
 
@@ -80,8 +82,8 @@ Commit in the project's message style (short and imperative if nothing says othe
 - what's deferred to later steps
 - how to run the check locally
 
-Link the plan step (in local mode, its path and heading: `anti-slop/plan.md`, step N).
+Link the plan step (in local mode, its path and number: `anti-slop/todo.md`, step N).
 
 **Local mode:** if the user asked not to push or open PRs (testing, offline, reviewing first), stop after the commit. Print the PR title and description so they can open it later.
 
-Then report the branch, the PR link (or "local only"), the numbers, and the next step in the plan.
+Then report the branch, the PR link (or "local only"), the numbers, and the next unchecked step in `todo.md`.

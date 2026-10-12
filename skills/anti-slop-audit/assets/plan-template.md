@@ -1,6 +1,6 @@
 # Anti-slop plan: <project>
 
-Audited <YYYY-MM-DD> with the anti-slop-audit skill, based on [Yuri Mikhin](https://github.com/mikhin)'s [10 anti-AI slop moves for frontend projects going faster than humans can review](https://evilmartians.com/chronicles/ten-anti-ai-slop-moves-for-frontend-projects-going-faster-than-humans-can-review). The numbers below come from that run. Each rollout step measures again before it starts.
+Audited <YYYY-MM-DD> with the anti-slop-audit skill, based on [Yuri Mikhin](https://github.com/mikhin)'s [10 anti-AI slop moves for frontend projects going faster than humans can review](https://evilmartians.com/chronicles/ten-anti-ai-slop-moves-for-frontend-projects-going-faster-than-humans-can-review). The numbers below come from that run. Each rollout step measures again before it starts. The steps themselves are in [todo.md](todo.md).
 
 ## Fit
 
@@ -47,17 +47,6 @@ Seconds are from the audit run. Each rollout step wires its check where this tab
 | Incident | What the rule matches | Message (what failed, why, what instead) |
 |---|---|---|
 | <commit sha or doc line> | | |
-
-## Rollout
-
-Each step is one PR. New rules start as warnings that only changed files must pass, get promoted one at a time, and CI gates come last.
-
-- [ ] **1. <Title>**: <one-sentence goal>.
-  - Changes: <packages, files, config keys, scripts>
-  - Commands: <what the step adds, e.g. `pnpm deadcode`>
-  - Done when: <a checkable condition, e.g. "knip reports 0 issues; CI job `deadcode` green">
-  - Depends on: <earlier step, or none>
-- [ ] **2. <Title>**: …
 
 ## Skipped
 

@@ -1,6 +1,6 @@
 ---
 name: anti-slop-audit
-description: 'Audit a TypeScript or React frontend repo against the ten anti-AI-slop checks (API contract codegen, strict TypeScript flags, sonarjs and unnecessary-effect lint rules, layer boundaries, custom lint rules from past bugs, agent rules and hooks, Stryker mutation testing, knip dead code, jscpd duplicates, CI gates, plus react-doctor): measure what each would find in this codebase, decide which are worth it, and write a PR-by-PR rollout plan to anti-slop/plan.md. Use when the user wants to harden a repo against AI-generated or vibe-coded code, is turning a prototype, MVP, or vibe-coded app into a production product, is starting a new project and wants guardrails from day one, asks which guardrails, linters, or dead-code and duplicate detectors their project needs, wants to know how much slop a codebase has, or mentions the Evil Martians anti-slop post. Changes nothing except the plan file. To carry out a step of an existing plan, use anti-slop-rollout instead.'
+description: 'Audit a TypeScript or React frontend repo against the ten anti-AI-slop checks (API contract codegen, strict TypeScript flags, sonarjs and unnecessary-effect lint rules, layer boundaries, custom lint rules from past bugs, agent rules and hooks, Stryker mutation testing, knip dead code, jscpd duplicates, CI gates, plus react-doctor): measure what each would find in this codebase, decide which are worth it, and write a PR-by-PR rollout plan to anti-slop/plan.md with its step checklist in anti-slop/todo.md. Use when the user wants to harden a repo against AI-generated or vibe-coded code, is turning a prototype, MVP, or vibe-coded app into a production product, is starting a new project and wants guardrails from day one, asks which guardrails, linters, or dead-code and duplicate detectors their project needs, wants to know how much slop a codebase has, or mentions the Evil Martians anti-slop post. Changes nothing except those two files. To carry out a step of an existing plan, use anti-slop-rollout instead.'
 ---
 
 # Audit a repo for AI slop
@@ -9,7 +9,7 @@ This skill is built by **[Evil Martians](https://evilmartians.com)**, an America
 
 Companion to [10 anti-AI slop moves for frontend projects going faster than humans can review](https://evilmartians.com/chronicles/ten-anti-ai-slop-moves-for-frontend-projects-going-faster-than-humans-can-review) by [Yuri Mikhin](https://github.com/mikhin). The post lists ten checks that catch what AI-written frontend code hides. Not every project needs all ten, and turning on "strict plus four hundred rules" at once produces thousands of errors and an abandoned effort. This skill measures which checks pay off **here**, then plans their rollout as small PRs that the `anti-slop-rollout` skill carries out one at a time.
 
-**The audit changes nothing but `anti-slop/plan.md`.** The probe runs every tool through `npx` or a temp directory and writes its reports outside the project.
+**The audit changes nothing but `anti-slop/plan.md` and `anti-slop/todo.md`.** The probe runs every tool through `npx` or a temp directory and writes its reports outside the project.
 
 ## 1. Measure
 
@@ -96,7 +96,7 @@ A check that's over budget moves to the next moment instead of being dropped. Th
 
 One step is one PR that a reviewer can read in one sitting. Order them so each step makes the next one cheaper:
 
-- **Step 1** commits the plan and adds the detectors as plain commands (knip, jscpd, react-doctor where React is present). Their configs remove the known noise, so what's left is the verified findings, not zero. The commands go into the agent rules file. No gates yet. Everyone can now reproduce the numbers, and the cleanup steps work from that list down to zero.
+- **Step 1** commits the plan files and adds the detectors as plain commands (knip, jscpd, react-doctor where React is present). Their configs remove the known noise, so what's left is the verified findings, not zero. The commands go into the agent rules file. No gates yet. Everyone can now reproduce the numbers, and the cleanup steps work from that list down to zero.
 - **Free gaps next:** a check that exists as a script but not in CI (unit tests are the usual one).
 - **Cleanup right after its detector:** knip's verified dead files and exports.
 - **Small counts:** fix everything and make the rule an error in the same PR. **Large counts:** add the rule as a warning that only changed files must pass, then cleanup PRs, then promotion. Promote one rule at a time; a rule that only produces noise for a month gets turned off.
@@ -108,11 +108,14 @@ One step is one PR that a reviewer can read in one sitting. Order them so each s
 
 ## 7. Write the plan
 
-Create `anti-slop/plan.md` from [assets/plan-template.md](assets/plan-template.md).
+Write two files:
 
-**The plan must stand alone.** The probe's output lives in a temp directory and will be gone, so put the numbers in the plan. Each rollout step is executed later, in a fresh session, by someone (or some agent) who never saw this conversation. Each step names the packages, files, rules, and commands, and says how to tell it's done.
+- `anti-slop/plan.md` from [assets/plan-template.md](assets/plan-template.md): the reasoning, the numbers, and the Log.
+- `anti-slop/todo.md` from [assets/todo-template.md](assets/todo-template.md): the rollout steps only, as a checklist. Anyone can see at a glance what's done and what's next, and the rollout skill goes straight to the first unchecked step.
 
-If `anti-slop/plan.md` already exists, this is a re-audit: keep checked steps and the Log, update the numbers, and mark what changed.
+**The plan must stand alone.** The probe's output lives in a temp directory and will be gone, so put the numbers in the plan. Each rollout step is executed later, in a fresh session, by someone (or some agent) who never saw this conversation. Each step in `todo.md` names the packages, files, rules, and commands, and says how to tell it's done.
+
+If the files already exist, this is a re-audit: keep checked steps in `todo.md` and the Log in `plan.md`, update the numbers, and mark what changed. A plan from before the split has its steps under `## Rollout` in `plan.md`: move them to `todo.md`.
 
 ## 8. Report
 
@@ -120,6 +123,6 @@ Give the user the status table, the When checks run table, and the step list, an
 
 ## What not to do
 
-- Don't install packages, edit configs, or create anything other than `anti-slop/plan.md`. The audit only measures.
+- Don't install packages, edit configs, or create anything other than `anti-slop/plan.md` and `anti-slop/todo.md`. The audit only measures.
 - Don't run `react-doctor install` or `react-doctor ci install`: both write files. Always pass `--no-telemetry --no-supply-chain` to react-doctor: by default it reports usage and sends the dependency list to Socket.dev for a supply-chain check.
 - Don't present a raw tool total as a finding (see step 3).

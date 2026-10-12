@@ -10,7 +10,7 @@ Companion to [10 anti-AI slop moves for frontend projects going faster than huma
 
 | Skill | What it does | Changes |
 |---|---|---|
-| `anti-slop-audit` | Runs every check read-only (tsc flags, oxlint with sonarjs and effect rules, knip, jscpd, react-doctor), removes framework false positives, mines past bugs for custom lint rules, and writes a PR-by-PR plan | `anti-slop/plan.md` only |
+| `anti-slop-audit` | Runs every check read-only (tsc flags, oxlint with sonarjs and effect rules, knip, jscpd, react-doctor), removes framework false positives, mines past bugs for custom lint rules, and writes a PR-by-PR plan | `anti-slop/plan.md` and `anti-slop/todo.md` only |
 | `anti-slop-rollout` | Takes the next step of the plan: adds one check, fixes or baselines what it finds, documents the commands for agents and humans, verifies, opens the PR | one branch and PR per run |
 
 The audit judges each move against the project instead of applying all ten. It skips the API contract on a site without an API, defers mutation testing when the test runner has no Stryker runner, and separates the dead files knip reports from the ones that are actually dead.
@@ -64,7 +64,7 @@ Or call a skill directly. With the Claude Code plugin, skill commands are namesp
 > /anti-slop:anti-slop-rollout
 ```
 
-The plan lives in `anti-slop/plan.md` in your repo, along with the scripts and project lint rules the rollout adds, so any session or teammate can pick up the next step.
+The plan lives in `anti-slop/` in your repo: `todo.md` is the step checklist, what's done and what's next, and `plan.md` holds the numbers, the reasoning, and the log. Next to them sit the scripts and project lint rules the rollout adds, so any session or teammate can pick up the next step.
 
 ## Requirements
 

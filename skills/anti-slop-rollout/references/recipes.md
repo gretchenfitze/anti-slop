@@ -34,7 +34,7 @@ Add a section to the project's agent rules file (AGENTS.md, or CLAUDE.md if that
 ```markdown
 ## Anti-slop checks
 
-Rolled out step by step from `anti-slop/plan.md`.
+Rolled out step by step from `anti-slop/todo.md`; the reasoning is in `anti-slop/plan.md`.
 
 - Fix what a check finds; don't silence it. No new `!`, `as any`, `@ts-expect-error`, or disable comments to get a check green.
 - Every ignore entry (knip `ignore`, jscpd `ignore`, lint `overrides`, a disable comment) carries a comment saying why. Review the lists when they grow: each entry is code a detector was told not to look at.
