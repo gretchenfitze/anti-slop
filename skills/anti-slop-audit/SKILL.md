@@ -124,5 +124,5 @@ Give the user the status table, the When checks run table, and the step list, an
 ## What not to do
 
 - Don't install packages, edit configs, or create anything other than `anti-slop/plan.md` and `anti-slop/todo.md`. The audit only measures.
-- Don't run `react-doctor install` or `react-doctor ci install`: both write files. Always pass `--no-telemetry --no-supply-chain` to react-doctor: by default it reports usage and sends the dependency list to Socket.dev for a supply-chain check.
+- Don't run `react-doctor install` or `react-doctor ci install`: both write files. Always run react-doctor as `npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain`. The gate skips versions younger than a week; without the flags it reports usage and sends the dependency list to Socket.dev for a supply-chain check.
 - Don't present a raw tool total as a finding (see step 3).

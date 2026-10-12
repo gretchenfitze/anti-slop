@@ -68,7 +68,7 @@ The plan lives in `anti-slop/` in your repo: `todo.md` is the step checklist, wh
 
 ## Requirements
 
-Git, Node 22+, network access for `npx`, and installed project dependencies. The audit installs nothing into the project: tools run through `npx` or a temp directory. react-doctor always runs with `--no-telemetry --no-supply-chain`, so nothing about the project leaves the machine except package downloads.
+Git, Node 22+ with npm 11.10+, network access for `npx`, and installed project dependencies. The audit installs nothing into the project: tools run through `npx` or a temp directory. react-doctor always runs as `npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain`: never a version younger than a week, and nothing about the project leaves the machine except package downloads.
 
 ## Credits
 

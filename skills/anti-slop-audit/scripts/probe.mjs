@@ -45,9 +45,9 @@ const run = (cmd, argv, { timeout = 900_000, cwd = ROOT } = {}) => {
   };
 };
 // npx downloads on first use; fetch the tool first so the timed run measures only the tool.
-const npxTimed = (pkg, argv) => {
-  run('npx', ['-y', pkg, '--version']);
-  return run('npx', ['-y', pkg, ...argv]);
+const npxTimed = (pkg, argv, npxFlags = []) => {
+  run('npx', ['-y', ...npxFlags, pkg, '--version']);
+  return run('npx', ['-y', ...npxFlags, pkg, ...argv]);
 };
 
 const read = (file) => {
@@ -669,11 +669,13 @@ if (want('doctor')) {
   if (!stack.react) {
     result.doctor = { skipped: 'no react dependency' };
   } else {
-    log('react-doctor: running with --no-telemetry --no-supply-chain');
+    log('react-doctor: running with --min-release-age=7 --no-telemetry --no-supply-chain');
     // react-doctor also scans nested projects in gitignored folders (worktrees, vendored apps); keep a
     // single-package repo to its root.
     const scope = stack.monorepo ? [] : ['--project', '.'];
-    const r = npxTimed('react-doctor@latest', ['--no-telemetry', '--no-supply-chain', '--json', '--blocking', 'none', ...scope, '.']);
+    const r = npxTimed('react-doctor@latest', ['--no-telemetry', '--no-supply-chain', '--json', '--blocking', 'none', ...scope, '.'], [
+      '--min-release-age=7',
+    ]);
     const report = parseJson(r.out);
     if (!report?.diagnostics) {
       result.doctor = { skipped: `react-doctor failed: ${(r.out + r.err).slice(0, 600)}` };

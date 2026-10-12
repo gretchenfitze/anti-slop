@@ -25,7 +25,7 @@ out=$({
   $bin/oxlint --deny-warnings $files &&
     $bin/knip --cache &&
     $bin/jscpd --config .jscpd.json --baseline-from-ref HEAD --fail-on-new-clones &&
-    $bin/react-doctor --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error
+    npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error
 } 2>&1) && exit 0
 
 printf '%s\n' "$out" >&2

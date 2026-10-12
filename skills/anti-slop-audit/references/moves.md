@@ -164,6 +164,6 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 **Probe:** `doctor.*`. `bySeverity.error` sizes the cleanup, so list the errors in the plan. Findings in build-time scripts (eval, import metadata) are usually intentional: exclude those paths rather than count them.
 
-**Setup:** add it as a pinned devDependency and call it from a package script, the agent hook, and CI. Don't use `react-doctor install`, which writes straight into `.git/hooks` and adds an unpinned `doctor` script. The rollout recipe has the commands.
+**Setup:** don't install it. Run `npx --min-release-age=7 react-doctor@latest` from a package script, the agent hook, and CI: the newest version at least a week old, so a hijacked release is usually caught and pulled first. Needs npm 11.10+. Don't use `react-doctor install`, which writes straight into `.git/hooks` and adds a `doctor` script without the release-age gate. The rollout recipe has the commands.
 
 **Notes for the plan:** run it with `--no-telemetry --no-supply-chain`. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. Name the package script `react-doctor`, not `doctor`: `pnpm doctor` is a pnpm built-in that runs instead and reports success. Its license is a modified MIT that forbids using it as AI training data or reselling it as a hosted service, which is fine for running it in a project. Its score is a diagnostic, not a target, just like the mutation score.

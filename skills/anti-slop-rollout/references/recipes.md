@@ -395,10 +395,10 @@ GitHub Actions, matching the project's existing setup steps:
 
 Every React project gets it in the review flow, in three parts: set it up as a plain command, clean up the errors, then gate on them. Warnings are reported and fixed when worthwhile.
 
-**Setup** goes in with the other detectors, with no gate yet. **Set it up by hand rather than with `react-doctor install --yes`.** That command also writes a pre-commit block straight into `.git/hooks` (unversioned, and alongside whatever lefthook or husky put there) and adds a `doctor` script that runs `npx react-doctor@latest` with telemetry on, which `pnpm doctor` shadows anyway. Instead:
+**Setup** goes in with the other detectors, with no gate yet. **Set it up by hand rather than with `react-doctor install --yes`.** That command also writes a pre-commit block straight into `.git/hooks` (unversioned, and alongside whatever lefthook or husky put there) and adds a `doctor` script that runs `npx react-doctor@latest` with no release-age gate and telemetry on, which `pnpm doctor` shadows anyway. Instead:
 
-- **Install it** as a devDependency with the project's package manager.
-- **Add a script:** `"react-doctor": "react-doctor --no-telemetry --no-supply-chain"`. In a single-package repo, add `--project .` to that and to the hook and CI commands below: react-doctor otherwise also scans nested projects in gitignored folders, like worktrees. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. If the team wants that scan, they can drop the flag knowingly.
+- **Don't install it.** Run it through `npx --min-release-age=7 react-doctor@latest` everywhere: the newest version at least a week old, so a hijacked release is usually caught and pulled before it runs here. Needs npm 11.10+.
+- **Add a script:** `"react-doctor": "npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain"`. In a single-package repo, add `--project .` to that and to the hook and CI commands below: react-doctor otherwise also scans nested projects in gitignored folders, like worktrees. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. If the team wants that scan, they can drop the flag knowingly.
 
 **Errors are mandatory, and get cleaned up before any gate:**
 
@@ -407,11 +407,11 @@ Every React project gets it in the review flow, in three parts: set it up as a p
 
 **Gate once errors are zero,** in the hook and CI together. `--scope changed` keeps both fast, and with a clean codebase `--blocking error` fires only on errors a change introduces.
 
-- **Hook:** `react-doctor --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error` in the Stop hook.
-- **CI:** a job running `react-doctor --no-telemetry --no-supply-chain --scope changed --base origin/${{ github.base_ref }} --blocking error` with `fetch-depth: 0`. `react-doctor ci install` generates a workflow that also comments findings on PRs; use it instead if the team wants the comments, and add the flags.
+- **Hook:** `npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error` in the Stop hook.
+- **CI:** a job running `npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base origin/${{ github.base_ref }} --blocking error` with `fetch-depth: 0`. `react-doctor ci install` generates a workflow that also comments findings on PRs; use it instead if the team wants the comments, and add the release-age gate and flags.
 
 **Warnings are optional:** they never block. Fix them in code a PR already touches. A rule with a real cluster of hits can become its own cleanup step; the rest stay in the scheduled report.
 
 **The score is a diagnostic.** Don't put a number on it in CI.
 
-**Its agent skill is optional.** The package ships one at `node_modules/react-doctor/dist/skills/react-doctor/`. The Stop hook already gives the agent the findings, so the skill is extra guidance on how to fix them. If the team wants it, copy it into the agent's skills directory and adjust it in the PR: point it at the local binary with `--no-telemetry --no-supply-chain` instead of `npx react-doctor@latest`, and drop the rule that treats a score drop as something to fix. Its `/doctor` flow fetches a playbook from react.doctor at run time; keep that section only if the team is fine with the agent following remote instructions.
+**Its agent skill is optional.** The package ships one at `dist/skills/react-doctor/`; `npm pack --min-release-age=7 react-doctor@latest` fetches it. The Stop hook already gives the agent the findings, so the skill is extra guidance on how to fix them. If the team wants it, copy it into the agent's skills directory and adjust it in the PR: add `--min-release-age=7` and `--no-telemetry --no-supply-chain` to its `npx react-doctor@latest` calls, and drop the rule that treats a score drop as something to fix. Its `/doctor` flow fetches a playbook from react.doctor at run time; keep that section only if the team is fine with the agent following remote instructions.
