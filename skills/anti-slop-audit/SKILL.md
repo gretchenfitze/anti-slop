@@ -84,10 +84,10 @@ A check catches slop only where it runs, and it survives only if it doesn't slow
 
 Then fill the moments. These budgets are defaults; the team can move them:
 
-- **Agent turn** (Stop hook): changed-files lint, plus whole-project checks that report new findings only (typecheck on a clean baseline, knip at zero, jscpd new clones). The whole hook stays under about 30 seconds, because it runs after every turn.
-- **Pre-commit:** the same file-scoped checks for humans, under about 10 seconds, or people reach for `--no-verify`.
+- **Agent turn** (Stop hook): changed-files lint and react-doctor, plus whole-project checks that report new findings only (typecheck on a clean baseline, knip at zero, jscpd new clones). The checks run in parallel, and the whole hook stays under about 30 seconds, because it runs after every turn.
+- **Pre-commit:** the file-scoped lint for humans, under about 10 seconds, or people reach for `--no-verify`. react-doctor's startup alone takes most of that, so it runs in the agent hook and PR CI instead.
 - **PR CI:** one job per check, if it finishes within the slowest existing job's time. A check that's slower but still useful on the diff, like mutation testing on changed files, runs non-blocking.
-- **Scheduled:** whole-project runs too slow or too noisy for a PR, such as the full mutation run, full react-doctor, the jscpd backlog, and semantic duplicates. Add this row only if at least one such check is adopted and someone is named to read the report; a report nobody reads is noise. Run it weekly by default, or monthly when the repo gets only a few commits a week.
+- **Scheduled:** whole-project runs too slow or too noisy for a PR, such as the full mutation run, full react-doctor, the jscpd backlog, and semantic duplicates. Add this row only if at least one such check is adopted and someone is named to read the report; a report nobody reads is noise. Run it weekly by default, or monthly when the repo gets only a few commits a week. A tool that runs as `@latest` (react-doctor) keeps its scheduled run after its gate: otherwise a rule from a new release first shows up as a block on some unrelated PR.
 - **Re-audit:** when the last rollout step lands, then quarterly or after a big change (a new framework, the team doubling). This is when ignore lists and rules that caught nothing get reviewed.
 
 A check that's over budget moves to the next moment instead of being dropped. The plan's table records where each check landed and why.
@@ -101,9 +101,10 @@ One step is one PR that a reviewer can read in one sitting. Order them so each s
 - **Cleanup right after its detector:** knip's verified dead files and exports.
 - **Small counts:** fix everything and make the rule an error in the same PR. **Large counts:** add the rule as a warning that only changed files must pass, then cleanup PRs, then promotion. Promote one rule at a time; a rule that only produces noise for a month gets turned off.
 - **`no-non-null-assertion` before `noUncheckedIndexedAccess`**, so the type fixes can't take the `!` shortcut.
-- **react-doctor errors are mandatory,** where React is present: cleanup steps fix every error, then one step adds the hook and PR CI job blocking on errors. Warnings report without blocking.
+- **react-doctor errors are mandatory,** where React is present: cleanup steps fix every error, then one step adds the hook and PR CI job blocking on errors. Warnings report without blocking, unless the team answers otherwise in step 8: then a warnings cleanup step (split by rule group if it gets long) and the gate with `--blocking warning` follow.
 - **CI gates last,** once the count is zero or the check fails only on new findings.
 - **The scheduled report** is its own step, placed after the checks it runs, when section 5 gave it a row.
+- **Trimming the agent rules file is the last step,** when the file has rules of its own. Once a check enforces a rule, its prose copy only competes for the model's attention. The step deletes every line a check now covers and keeps what no check sees. The probe's prohibition list (`scars.ruleLines`) is its starting inventory.
 - **If the user wants a single first step,** the post's own order is the contract (if there's an API), then mutation testing, with the CI gate keeping both.
 
 ## 7. Write the plan
@@ -115,14 +116,14 @@ Write two files:
 
 **The plan must stand alone.** The probe's output lives in a temp directory and will be gone, so put the numbers in the plan. Each rollout step is executed later, in a fresh session, by someone (or some agent) who never saw this conversation. Each step in `todo.md` names the packages, files, rules, and commands, and says how to tell it's done.
 
-If the files already exist, this is a re-audit: keep checked steps in `todo.md` and the Log in `plan.md`, update the numbers, and mark what changed. A plan from before the split has its steps under `## Rollout` in `plan.md`: move them to `todo.md`.
+If the files already exist, this is a re-audit: keep checked steps in `todo.md` and the Log in `plan.md`, update the numbers, and mark what changed. Don't renumber steps: Log entries and PRs cite them. Number an inserted step after the one it follows (`3a`, `3b`), and keep a moved step's number. A plan from before the split has its steps under `## Rollout` in `plan.md`: move them to `todo.md`.
 
 ## 8. Report
 
-Give the user the status table, the When checks run table, and the step list, and ask what to drop or reorder. Point at the scar candidates; they're the part only the team can judge. Don't commit anything: committing the plan is the first rollout step.
+Give the user the status table, the When checks run table, and the step list, and ask what to drop or reorder. Point at the scar candidates; they're the part only the team can judge. Where React is present, ask one more question: should react-doctor warnings block too, or only report (the default)? Give the warning count, so the team sees what blocking would cost. Don't commit anything: committing the plan is the first rollout step.
 
 ## What not to do
 
 - Don't install packages, edit configs, or create anything other than `anti-slop/plan.md` and `anti-slop/todo.md`. The audit only measures.
-- Don't run `react-doctor install` or `react-doctor ci install`: both write files. Always run react-doctor as `npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain`. The gate skips versions younger than a week; without the flags it reports usage and sends the dependency list to Socket.dev for a supply-chain check.
+- Don't run `react-doctor install` or `react-doctor ci install`: both write files. Always run react-doctor as `npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain`. The gate skips versions younger than a week; without the flags it reports usage and sends the dependency list to Socket.dev for a supply-chain check.
 - Don't present a raw tool total as a finding (see step 3).

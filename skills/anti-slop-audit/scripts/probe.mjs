@@ -217,7 +217,7 @@ const stack = {
   }),
   agentFiles: files
     .filter((f) =>
-      /(?:^|\/)(?:AGENTS|CLAUDE|CONVENTIONS|CONTRIBUTING)\.md$|^\.cursor\/rules\/|^\.cursorrules$|^\.github\/copilot-instructions\.md$/.test(
+      /(?:^|\/)(?:AGENTS|CLAUDE|CONVENTIONS|CONTRIBUTING)\.md$|^\.claude\/rules\/|^\.cursor\/rules\/|^\.cursorrules$|^\.github\/copilot-instructions\.md$/.test(
         f,
       ),
     )

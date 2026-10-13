@@ -1,6 +1,6 @@
 ---
 name: anti-slop-rollout
-description: 'Carry out the next step of an anti-AI-slop rollout plan (anti-slop/todo.md, with the reasoning in anti-slop/plan.md) as one pull request: add a single check (a strict TypeScript flag, sonarjs or unnecessary-effect or Playwright lint rules, layer boundaries, a custom lint rule from a past bug, an agent Stop hook, Stryker mutation testing, knip and dead-file scripts, jscpd, react-doctor, a CI gate, or a scheduled report), fix or baseline what it finds, document its commands in the agent rules file, verify it, and open the PR. Use when the user says "next anti-slop step", "do step N of the plan", or asks to set up knip, jscpd, react-doctor, Stryker, sonarjs, or boundaries the gradual way (warnings first, CI gate last) in a repo that has an anti-slop plan. Needs the plan from anti-slop-audit; without one, run the audit first.'
+description: 'Carry out the next step of an anti-AI-slop rollout plan (anti-slop/todo.md, with the reasoning in anti-slop/plan.md) as one pull request: add a single check (a strict TypeScript flag, sonarjs or unnecessary-effect or Playwright lint rules, layer boundaries, a custom lint rule from a past bug, an agent Stop hook, Stryker mutation testing, knip and dead-file scripts, jscpd, react-doctor, a CI gate, a scheduled report, and the final trim of the agent rules file), fix or baseline what it finds, document its commands in the agent rules file, verify it, and open the PR. Use when the user says "next anti-slop step", "do step N of the plan", asks which rules in AGENTS.md or CLAUDE.md the linters now cover, or asks to set up knip, jscpd, react-doctor, Stryker, sonarjs, or boundaries the gradual way (warnings first, CI gate last) in a repo that has an anti-slop plan. Needs the plan from anti-slop-audit; without one, run the audit first.'
 ---
 
 # Roll out one anti-slop step
@@ -24,7 +24,7 @@ Then read `anti-slop/plan.md` for the context the step needs: its move's notes, 
 The plan's numbers are from the audit, and the code has moved since. Rerun the relevant probe section from the sibling skill:
 
 ```bash
-node <skill-dir>/../anti-slop-audit/scripts/probe.mjs --only <sections, comma-separated: tsc,lint,knip,jscpd,doctor>
+node <skill-dir>/../anti-slop-audit/scripts/probe.mjs --only <sections, comma-separated: tsc,lint,knip,jscpd,doctor, or scars for the rules-file trim>
 ```
 
 `<skill-dir>` is the directory this SKILL.md is in. If the audit skill isn't installed next to it, run the tool from the recipe directly. Note the numbers: they go into the PR description and the Log in `plan.md`.
@@ -53,23 +53,25 @@ Add packages with the project's package manager as devDependencies, at current v
 
 - **Count decides the rule level.** A new rule starts as a warning, unless its count is small enough to fix in this PR; then fix everything and make it an error.
 - **Fix findings properly.** No new `!`, `as any`, disable comments, or reason-less ignore entries to get a check green. A false positive gets a config-level ignore with a comment saying why. If a suppression is truly needed, it carries the reason.
-- **One concern per PR.** If the fixes balloon (dozens of files, or risky logic), land the config with warnings now, and insert cleanup steps into `todo.md` for later PRs.
+- **One concern per PR.** If the fixes balloon (dozens of files, or risky logic), land the config with warnings now, and insert cleanup steps into `todo.md` for later PRs. Number them after the step they follow (`3a`, `3b`) instead of renumbering: Log entries and PRs cite step numbers.
 - **Scores are diagnostics.** Never change code to move a react-doctor or mutation score.
 
 ## 5. Document
 
-Add the **Conventions** section from recipes.md to the project's agent rules file the first time; later steps only add their commands to its list. Use AGENTS.md if the project has it, otherwise CLAUDE.md. Match the file's style and keep additions short.
+Add the **Conventions** section from recipes.md to the project's agent rules file the first time; later steps only add their commands to its list. Use AGENTS.md if the project has it, otherwise CLAUDE.md. Match the file's style and keep additions short. If the file already states in prose the rule this step's check now enforces, delete that line in the same PR: the check is the rule now. The plan's last step sweeps what's left.
 
 ## 6. Verify
 
 - **New commands:** run each one and compare the result with the step's "Done when". Check that the output really comes from the tool: a script name that collides with a package manager built-in runs the built-in and exits 0.
 - **Detectors:** prove each one finds something. Plant a dead file, a stale mock, or a duplicated block, see it reported, then remove the plant. For react-doctor, plant an effect that adds a listener without cleanup.
 - **Project lint rules:** the fixture test passes, and the rule fires on the code from before the incident's fix (`git show <sha>^:<file>`).
+- **The rules-file trim:** each deleted line is listed in the PR next to the check that enforces it. Where you're not sure the check fires, plant the violation and run the check on it.
 - **The project's existing checks:** run the ones the change can affect (lint, typecheck, unit tests, build). If something fails that you can't fix within this step, report it with the output. Don't hide it.
+- **What only a real PR shows:** whether a path filter skips the job when it should, whether a required check reports its status, and whether a schedule runs (only after merge, from the default branch). If the step touches any of these, list them in a short "Verify on this PR" note for the PR description.
 
 ## 7. Update the plan
 
-Check the step off in `todo.md`. Append to the Log in `plan.md`: date, step, branch or PR, numbers before → after, and anything that changed the plan (a rule turned off as noise, a threshold moved, follow-up steps inserted into `todo.md`).
+Check the step off in `todo.md`. Append to the Log in `plan.md`: date, step, branch or PR, numbers before → after, which "Verify on this PR" items stayed unverified, and anything that changed the plan (a rule turned off as noise, a threshold moved, follow-up steps inserted into `todo.md`).
 
 ## 8. Commit and open the PR
 
@@ -81,6 +83,7 @@ Commit in the project's message style (short and imperative if nothing says othe
 - the numbers before → after
 - what's deferred to later steps
 - how to run the check locally
+- the "Verify on this PR" note from step 6, if there is one
 
 Link the plan step (in local mode, its path and number: `anti-slop/todo.md`, step N).
 

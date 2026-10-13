@@ -1,6 +1,8 @@
 // From ts-workbench (https://github.com/mikhin/ts-workbench) by Yuri Mikhin (https://github.com/mikhin), MIT.
-// Generalized for existing repos: knip.json or knip.jsonc, source globs from knip's `project`,
-// aliases from tsconfig `paths`, `.js` specifiers that point at `.ts`, and Vite `?query` suffixes.
+// Generalized for existing repos: knip.json or knip.jsonc, source globs from knip's `project` (with
+// `!` negations, `ignoreFiles`, and git-ignored files skipped), aliases from tsconfig `paths`, `.js`
+// specifiers that point at `.ts`, and Vite `?query` suffixes.
+import { execFileSync } from "node:child_process";
 import { globSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
@@ -79,10 +81,30 @@ const aliases = Object.entries(paths).map(([key, [target]]) => ({
 }));
 
 const ignoredByKnip = (file) =>
-  asList(knipConfig.ignore).some((pattern) => path.matchesGlob(file, pattern));
+  [...asList(knipConfig.ignore), ...asList(knipConfig.ignoreFiles)].some((pattern) =>
+    path.matchesGlob(file, pattern),
+  );
 
-const expand = (patterns) =>
-  globSync(patterns, { cwd: ROOT, exclude: (file) => file.includes("node_modules") }).map(String);
+// Knip skips what git ignores (build output, caches), so the walk does too.
+const gitFiles = new Set(
+  execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+  }).split("\0"),
+);
+
+// Knip patterns: a leading `!` negates.
+const expand = (patterns) => {
+  const negated = patterns.filter((pattern) => pattern.startsWith("!")).map((pattern) => pattern.slice(1));
+
+  return globSync(
+    patterns.filter((pattern) => !pattern.startsWith("!")),
+    { cwd: ROOT, exclude: (file) => file.includes("node_modules") },
+  )
+    .map(String)
+    .filter((file) => gitFiles.has(file) && !negated.some((pattern) => path.matchesGlob(file, pattern)));
+};
 
 export const knipEntries = () => expand(asList(knipConfig.entry)).map((entry) => path.resolve(ROOT, entry));
 

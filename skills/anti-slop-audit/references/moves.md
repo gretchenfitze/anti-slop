@@ -95,10 +95,10 @@ A preset someone else wrote goes in as a batch; it needs no incident behind it. 
 
 **Done looks like:**
 
-- **An agent rules file** (AGENTS.md or CLAUDE.md) listing the check commands and the project's conventions.
+- **An agent rules file** (AGENTS.md or CLAUDE.md) listing the check commands and the project's conventions, and no line that restates a check: once a linter enforces a rule, the prose copy only competes for attention. The plan's last step trims those.
 - **An agent hook** that runs the linter on changed files when the agent stops (Claude Code `Stop` hook exiting 2 so the agent must fix what it broke), plus a pre-commit hook for humans.
 
-**Probe:** `stack.agentFiles`, `stack.agentHooks`, `stack.gitHooks`. A rules file without a hook is **partial**: the hook is what turns the rules from advice into a feedback loop.
+**Probe:** `stack.agentFiles`, `stack.agentHooks`, `stack.gitHooks`. A rules file without a hook is **partial**: the hook is what turns the rules from advice into a feedback loop. `scars.ruleLines` lists the file's prohibitions; the ones an existing check already enforces are the trim step's first candidates.
 
 ## 7. Mutation testing
 
@@ -159,11 +159,16 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 **Recommend it for every React project** as part of the review flow: a PR CI job that blocks on errors, plus the agent hook. Its severity split sets the rollout:
 
-- **Errors are mandatory, cleanup first.** The plan fixes all of them, then gates the hook and CI with `--blocking error`. Gating earlier hands the backlog to whoever next touches a file with an old error. Before calling one a false positive, check whether cleanup happens another way (an array of observers disconnected together, say). A real false positive gets a config-level ignore with the reason.
-- **Warnings are recommended, not mandatory.** They're reported but don't block. Fix them in code you're already touching. A rule with a real cluster of hits can become a cleanup step.
+- **Errors are mandatory, cleanup first.** The plan fixes all of them, then gates the hook and CI with `--blocking error`. Gating earlier hands the backlog to whoever next touches a file with an old error. Before calling one a false positive, check whether cleanup happens another way (an array of observers disconnected together, say). A real false positive gets a per-file entry in react-doctor's config file (`ignore.overrides`) with the reason.
+- **Whether warnings block is the team's choice.** By default they're reported but don't block: fix them in code you're already touching, and a rule with a real cluster of hits can become a cleanup step. The report asks whether they should block too. If so, the plan adds a warnings cleanup step (split by rule group if it gets long), then the gate with `--blocking warning`.
 
-**Probe:** `doctor.*`. `bySeverity.error` sizes the cleanup, so list the errors in the plan. Findings in build-time scripts (eval, import metadata) are usually intentional: exclude those paths rather than count them.
+**Probe:** `doctor.*`. `bySeverity.error` sizes the cleanup, so list the errors in the plan; `bySeverity.warning` sizes the cleanup if warnings will block. Before counting, remove what's intentional:
 
-**Setup:** don't install it. Run `npx --min-release-age=7 react-doctor@latest` from a package script, the agent hook, and CI: the newest version at least a week old, so a hijacked release is usually caught and pulled first. Needs npm 11.10+. Don't use `react-doctor install`, which writes straight into `.git/hooks` and adds a `doctor` script without the release-age gate. The rollout recipe has the commands.
+- **Build-time scripts:** eval and import-metadata findings are usually intentional. Exclude those paths rather than count them.
+- **Hydration gates in SSR and islands frameworks:** react-doctor's state and hydration rules misfire on the "set state after mount" gate, as the effects plugin does (move 3). If the project documents that pattern, those hits are config, not cleanup.
+
+**Setup:** don't install it. Run `npx -y --min-release-age=7 react-doctor@latest` from a package script, the agent hook, and CI: the newest version at least a week old, so a hijacked release is usually caught and pulled first. Don't use `react-doctor install`, which writes straight into `.git/hooks` and adds a `doctor` script without the release-age gate. The rollout recipe has the commands.
+
+**`react-doctor design`** runs the UI design rules a full scan leaves out. It's an opt-in extra: mention it, don't count it in the cleanup.
 
 **Notes for the plan:** run it with `--no-telemetry --no-supply-chain`. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. Name the package script `react-doctor`, not `doctor`: `pnpm doctor` is a pnpm built-in that runs instead and reports success. Its license is a modified MIT that forbids using it as AI training data or reselling it as a hosted service, which is fine for running it in a project. Its score is a diagnostic, not a target, just like the mutation score.

@@ -2,7 +2,7 @@
 
 Read **Adapting to the stack**, **Conventions**, and **Running often**, then only the section for the step you're doing. Package versions below are the ones verified when this was written. Add the current versions with the project's package manager, and check a tool's `--help` when a flag here doesn't match.
 
-Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conventions) · [Running often](#running-often) · [1 Contract](#1-api-contract) · [2 Strict TS](#2-strict-typescript) · [3 Linter rules](#3-linter-rules) · [4 Boundaries](#4-boundaries) · [5 Scar rules](#5-scar-rules) · [6 Agent rules and hooks](#6-agent-rules-and-hooks) · [7 Mutation testing](#7-mutation-testing) · [8 Dead code](#8-dead-code) · [9 Duplicates](#9-duplicates) · [10 CI gate](#10-ci-gate) · [react-doctor](#react-doctor)
+Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conventions) · [Running often](#running-often) · [1 Contract](#1-api-contract) · [2 Strict TS](#2-strict-typescript) · [3 Linter rules](#3-linter-rules) · [4 Boundaries](#4-boundaries) · [5 Scar rules](#5-scar-rules) · [6 Agent rules and hooks](#6-agent-rules-and-hooks) · [7 Mutation testing](#7-mutation-testing) · [8 Dead code](#8-dead-code) · [9 Duplicates](#9-duplicates) · [10 CI gate](#10-ci-gate) · [react-doctor](#react-doctor) · [Trim the rules file](#trim-the-rules-file)
 
 ## Adapting to the stack
 
@@ -22,6 +22,8 @@ Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conv
 - **husky** with lint-staged or nano-staged: add a glob entry.
 - **simple-git-hooks:** edit its command.
 - **Nothing:** add `nano-staged` with `simple-git-hooks`, the lightest pair.
+
+**CI.** The recipes show GitHub Actions; the project's existing CI config says which provider it has. Keep the shape in that provider's syntax: one job per check, full history and the PR's target branch fetched for diff-based jobs, non-blocking for the slow ones, a PR comment posted through the forge CLI. The bundled scripts take the base ref as an argument and print markdown, so they run anywhere. GitLab: `GIT_DEPTH: 0` for full history, `git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"` for the base ref, `glab mr note` for the comment.
 
 **Package scripts.** Name them after what they do (`deadcode`, `dup`, `mutation`), match the existing naming style (`lint:scripts` vs `lint-scripts`), and call the tool directly, not through `npx`. Don't reuse a package manager built-in: `pnpm doctor`, `pnpm audit`, `pnpm outdated`, `npm doctor` and friends run the built-in instead of your script, exit 0, and look like success.
 
@@ -57,13 +59,14 @@ Each check runs at the cheapest moment that still catches what it's for. The pla
 
 | When | What | How |
 |---|---|---|
-| Every agent turn and commit, on changed files | lint rules (presets, boundaries, project rules), react-doctor | the agent Stop hook and pre-commit (section 6); react-doctor `--scope changed --base HEAD` takes about 13 s |
+| Every agent turn and commit, on changed files | lint rules (presets, boundaries, project rules) | the agent Stop hook and pre-commit (section 6) |
+| Every agent turn, on changed files | react-doctor `--scope changed --base HEAD` (about 13 s) | the Stop hook only: it's over the pre-commit budget, and its startup alone takes most of it |
 | Every agent turn, whole project but fast | knip (about 3 s with `--cache`), jscpd new clones (about 11 s with `--baseline-from-ref HEAD --fail-on-new-clones`) | add to the Stop hook only once the backlog is zero or the check reports new findings only |
-| Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor on the diff (blocks on errors once they're zero), mutation testing on changed files (non-blocking) | one CI job per check (section 10) |
-| Weekly | full jscpd report (`dup:top`), full react-doctor, full mutation run | the scheduled report below, when the plan has a Scheduled row |
+| Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor (a full scan, or on the diff when that doesn't fit; blocks on errors once they're zero), mutation testing on changed files (non-blocking) | one CI job per check (section 10) |
+| Weekly | full jscpd report (`dup:top`), full react-doctor (kept after its gate, see react-doctor), full mutation run | the scheduled report below, when the plan has a Scheduled row |
 | Re-audit | ignore lists, rules that caught nothing, new numbers | rerun `anti-slop-audit` when the plan says |
 
-**Scheduled report.** One workflow runs the commands in the plan's Scheduled row and comments a summary on one open issue. The backlog stays visible without blocking anyone. GitHub Actions:
+**Scheduled report.** One workflow runs the commands in the plan's Scheduled row and writes a summary into one open issue, assigned to whoever that row names. The backlog stays visible without blocking anyone. GitHub Actions:
 
 ```yaml
 # .github/workflows/anti-slop-report.yml
@@ -96,11 +99,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           n=$(gh issue list --state open --search 'in:title "Anti-slop report"' --json number --jq '.[0].number // empty')
-          if [ -n "$n" ]; then gh issue comment "$n" --body-file report.md
-          else gh issue create --title 'Anti-slop report' --body-file report.md; fi
+          if [ -n "$n" ]; then gh issue edit "$n" --body-file report.md
+          else gh issue create --title 'Anti-slop report' --body-file report.md --assignee <login>; fi
 ```
 
 - **One line per command** in the plan's Scheduled row. Keep each to a summary: the issue is for reading, and the artifact keeps the full reports.
+- **Each run replaces the issue body** rather than adding a comment, so the issue is always one current list. GitHub keeps the edit history.
 - **Scheduled workflows run from the default branch,** and GitHub disables them in a public repo after 60 days without activity. Run it once with `workflow_dispatch` to verify it.
 - **GitLab:** add a pipeline schedule (Build › Pipeline schedules) and a job with `rules: [{ if: '$CI_PIPELINE_SOURCE == "schedule"' }]`. **Other CI:** use its scheduled-pipeline feature with the same commands. Without a forge CLI, keep the artifact and skip the issue.
 
@@ -263,9 +267,9 @@ The template is in `assets/lint-rules/`. Copy it to `anti-slop/lint-rules/`, del
 - **If the project already has one,** add the new checks to whatever it runs.
 - **If not,** copy `assets/agent-check.sh` to `anti-slop/agent-check.sh`, delete the lines for tools the project doesn't use, swap `oxlint` for `eslint --max-warnings=0` if needed, and wire it in `.claude/settings.json` as its header shows.
 
-The hook exits 2 so Claude Code sends the findings back and the agent fixes them before it finishes. It stands down on the second block in a row so an unfixable finding can't loop.
+The hook exits 2 so Claude Code sends the findings back and the agent fixes them before it finishes. It stands down on the second block in a row so an unfixable finding can't loop. That's why one block must carry every failure: the script runs its checks in parallel and reports them all. A hook that chains checks with `&&` reports only the first failure, and the stand-down then skips the rest until the next prompt.
 
-**Pre-commit:** the same file-scoped checks for humans, through the project's hook tool (see Adapting to the stack).
+**Pre-commit:** the file-scoped lint for humans, through the project's hook tool (see Adapting to the stack).
 
 **Other agents:** Cursor, Codex, and others have their own hook or rules mechanisms. Wire the same script where the project uses them, and say in the PR which agents are covered.
 
@@ -289,12 +293,12 @@ The hook exits 2 so Claude Code sends the findings back and the agent fixes them
 - `mutation`: `stryker run`.
 - `mutation:changed`: `stryker run --mutate "$(node anti-slop/changed-mutants.mjs origin/<default-branch>)"`. Copy `assets/scripts/changed-mutants.mjs`.
 
-**CI:** a job on pull requests only, with `continue-on-error: true` and `fetch-depth: 0`:
+**CI:** a non-blocking job on pull requests only, with full history (GitHub Actions: `continue-on-error: true`, `fetch-depth: 0`):
 
 1. Compute the changed files with `changed-mutants.mjs`.
 2. Run Stryker on them with `--reporters json`.
 3. Build a comment with `anti-slop/mutation-pr-report.mjs` (from `assets/scripts/`).
-4. Post or update one PR comment marked `<!-- mutation-report -->`.
+4. Post or update one PR comment marked `<!-- mutation-report -->`, through the forge CLI (`gh pr comment`, `glab mr note`).
 
 The comment lists surviving mutants on changed lines. A survivor is a missing assertion, not a bug. The usual causes are shape asserted instead of content, an unverified snapshot, or a test that checks the mock.
 
@@ -308,7 +312,12 @@ The comment lists surviving mutants on changed lines. A survivor is a missing as
   // Framework plugins (Next, Astro, Vite, Vitest, Playwright, …) switch on by themselves when the
   // dependency is installed. List only what they miss.
   "entry": ["scripts/*.mjs"],
-  "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs"],
+  // knip's default extensions plus the framework's; setting `project` replaces the default
+  "project": [
+    "**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,astro}",
+    // a folder loaded by glob (content collections, data files)
+    "!<folder>/**"
+  ],
   "ignore": [
     // generated by `api:generate`, checked by its own CI step
     "src/api/generated/**"
@@ -322,20 +331,20 @@ The comment lists surviving mutants on changed lines. A survivor is a missing as
 
 **Noise has known causes:**
 
-- **Content collections and data folders** loaded by glob: keep them out of `project`.
-- **Scripts run by path** (`node bin/x.mjs`, shebang files): add them to `entry`.
+- **Content collections and data folders** loaded by glob: negate them in `project` (`"!<folder>/**"`). Don't narrow `project` to `src/**/*.{ts,tsx}` instead: the framework's files silently drop out of the analysis, and everything only they import looks unused.
+- **Scripts run by path** (`node bin/x.mjs`): add them to `entry`. knip can't parse an extensionless shebang script, so for one of those, make the modules it loads the entries.
 - **Test files reported unused:** the test runner isn't recognized (custom wrappers, `node --test` through another binary). Add the test glob to `entry`.
 - **Dependencies used by string** in a config: `ignoreDependencies`, with the reason.
 
 **Cleanup PR:** delete what's verifiably dead (grep before deleting), remove unused exports or make them file-local, and drop unused dependencies. Then add `deadcode: knip` and a CI job. Once it reports zero, the job is the gate and `knip --cache` can join the Stop hook.
 
-**Narrow ignores:** `ignoreIssues` silences one issue type for one file (`"postcss/plugin.js": ["exports"]`), better than ignoring the whole file. Resolve knip's "Configuration hints" too (redundant entries, unused ignores), except the entries the reachability walk needs (below).
+**Narrow ignores:** `ignore` hides every issue type in a file. `ignoreFiles` only keeps it out of the unused-files report, and `ignoreIssues` silences one issue type for one file (`"postcss/plugin.js": ["exports"]`). Use the narrowest one that fits. Resolve knip's "Configuration hints" too (redundant entries, unused ignores), except the entries the reachability walk needs (below).
 
 **Fix noise in this order.** Unused exports used only by tests disappear once the tests are entries, so fix the test entries first, then re-read the export list.
 
 **Reachability walk:** copy `assets/scripts/find-dead-code.mjs` and `resolve-module.mjs` to `anti-slop/`.
 
-- It walks imports from knip's `entry` files through knip's `project` files and lists files no entry reaches. It reads aliases from tsconfig `paths`.
+- It walks imports from knip's `entry` files through knip's `project` files and lists files no entry reaches. It reads aliases from tsconfig `paths`, and skips what `!` negations, `ignore`, `ignoreFiles`, and `.gitignore` exclude.
 - **It only knows explicit entries.** Framework entry points that knip's plugins find on their own (pages, routes, the framework config, content config) must be listed in `entry` for the walk. knip will hint "Remove redundant entry pattern" for them; keep them, and say why in a comment.
 - **Every entry must also match `project`.** An entry outside `project` (a root `*.config.mjs`, say) is silently dropped, and everything only it imports shows up as dead.
 - A file kept on purpose carries `@dead-code-allow` in its first 200 characters.
@@ -374,7 +383,7 @@ The comment lists surviving mutants on changed lines. A survivor is a missing as
 
 **One job per check,** so a failure is visible without digging through a combined log: format and lint, typecheck, unit tests, build, then each detector as it reaches its gate. Deploys depend on them (`needs:`).
 
-GitHub Actions, matching the project's existing setup steps:
+The worked example is GitHub Actions, matching the project's existing setup steps; CI in Adapting to the stack covers other providers:
 
 ```yaml
   deadcode:
@@ -385,33 +394,75 @@ GitHub Actions, matching the project's existing setup steps:
       - run: pnpm deadcode
 ```
 
-**Fetch history for diff-based jobs:** `dup:new` and react-doctor on the diff need `fetch-depth: 0` and the base ref (`origin/${{ github.base_ref }}`).
+**Fetch history for diff-based jobs:** `dup:new` and react-doctor on the diff need the full history and the PR's target branch as the base ref (GitHub Actions: `fetch-depth: 0` and `origin/${{ github.base_ref }}`).
 
-**Match the repo's hardening:** pinned action SHAs, `permissions:` blocks, `persist-credentials: false`. Copy what the other jobs do.
+**Match the repo's hardening:** copy what the other jobs do (on GitHub: pinned action SHAs, `permissions:` blocks, `persist-credentials: false`).
+
+**Path filters** (GitHub `on.pull_request.paths`, GitLab `rules: changes:`) save CI minutes, but they have traps:
+
+- **List everything that changes the result:** the check's own config, any config it extends, `package.json` (the script's flags), and the CI config itself.
+- **GitHub: a workflow skipped by `paths:` reports no status,** so as a required check it blocks every PR it skips. Don't path-filter a required check: a cached install is all the filter saves.
+- **GitHub's filter syntax has no brace expansion,** so each extension needs its own line (`'**.ts'`, `'**.tsx'`).
+
+**Cancel superseded runs per branch.** GitHub: a `concurrency` group keyed on `github.ref` (`group: ${{ github.workflow }}-${{ github.ref }}`); a group shared across PRs cancels another PR's pending run, even with `cancel-in-progress: false`. GitLab: `interruptible: true` on the jobs, and the project's auto-cancel setting does the rest per ref.
 
 **Add each gate in the step that gets its check to zero,** not before.
 
 ## react-doctor
 
-Every React project gets it in the review flow, in three parts: set it up as a plain command, clean up the errors, then gate on them. Warnings are reported and fixed when worthwhile.
+Every React project gets it in the review flow, in three parts: set it up as a plain command, clean up the errors, then gate on them.
 
 **Setup** goes in with the other detectors, with no gate yet. **Set it up by hand rather than with `react-doctor install --yes`.** That command also writes a pre-commit block straight into `.git/hooks` (unversioned, and alongside whatever lefthook or husky put there) and adds a `doctor` script that runs `npx react-doctor@latest` with no release-age gate and telemetry on, which `pnpm doctor` shadows anyway. Instead:
 
-- **Don't install it.** Run it through `npx --min-release-age=7 react-doctor@latest` everywhere: the newest version at least a week old, so a hijacked release is usually caught and pulled before it runs here. Needs npm 11.10+.
-- **Add a script:** `"react-doctor": "npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain"`. In a single-package repo, add `--project .` to that and to the hook and CI commands below: react-doctor otherwise also scans nested projects in gitignored folders, like worktrees. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. If the team wants that scan, they can drop the flag knowingly.
+- **Don't install it.** Run it through `npx -y --min-release-age=7 react-doctor@latest` everywhere: the newest version at least a week old, so a hijacked release is usually caught and pulled before it runs here. The gate matters even with a pinned version: npx has no lockfile, so the tool's caret-ranged dependencies resolve fresh on every run. `-y` stops npx from prompting in a terminal; hooks and CI have no TTY and already assume yes.
+- **Check npm where it runs, CI included.** npm older than 11.10 warns that `--min-release-age` is unknown and then ignores it, so the release-age gate is silently off. Check which npm the CI's Node version ships (`npm --version` in a job), and upgrade npm or Node in the job if it's older.
+- **Add a script:** `"react-doctor": "npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain"`. In a single-package repo, add `--project .` to that and to the hook and CI commands below: react-doctor otherwise also scans nested projects in gitignored folders, like worktrees. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. If the team wants that scan, they can drop the flag knowingly.
 
 **Errors are mandatory, and get cleaned up before any gate:**
 
 - **Fix every error,** in one cleanup step or several, split by directory or rule when they don't fit one PR. Gating first would hand the backlog to whoever next touches a file with an old error.
 - **Before calling one a false positive,** check whether cleanup happens another way (an array of observers disconnected together, say). Build-time `eval` or import-metadata findings in scripts are usually intentional: exclude those paths in config, with the reason.
 
-**Gate once errors are zero,** in the hook and CI together. `--scope changed` keeps both fast, and with a clean codebase `--blocking error` fires only on errors a change introduces.
+**Triage notes:**
 
-- **Hook:** `npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error` in the Stop hook.
-- **CI:** a job running `npx --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base origin/${{ github.base_ref }} --blocking error` with `fetch-depth: 0`. `react-doctor ci install` generates a workflow that also comments findings on PRs; use it instead if the team wants the comments, and add the release-age gate and flags.
+- **Suppressions go in react-doctor's config file:** `doctor.config.json`, `.jsonc`, or `.ts` (the docs list the other extensions), or a `reactDoctor` key in `package.json`. JSON configs allow comments. A false positive gets a per-file entry under `ignore.overrides` (`{ "files": [...], "rules": [...] }`), each with a comment saying why. `ignore.rules` drops a rule project-wide and `ignore.files` skips a file entirely: keep those for documented patterns and whole path categories.
+- **Hydration gates in SSR and islands frameworks:** `react-doctor/no-initialize-state` and `react-doctor/rendering-hydration-no-flicker` misfire on the "set state after mount" gate, just like the effects plugin's `no-initialize-state` (section 3). When the project documents that pattern, suppress both project-wide in `ignore.rules`, with the reason.
+- **`no-high-complexity-react-function`** counts only the component's own body (ternaries, `&&`, `||`), not nested callbacks, so extracting a `.map` callback changes nothing. Move a whole branch into a child component or a lowercase helper instead.
+- **It reads the project's lint config.** react-doctor merges the JSON oxlint or ESLint config, so a lint config change can change its findings: add that config to the gate's path filter (section 10). If the config is type-aware, CI runs the framework's type generation (such as `astro sync`) before the scan.
 
-**Warnings are optional:** they never block. Fix them in code a PR already touches. A rule with a real cluster of hits can become its own cleanup step; the rest stay in the scheduled report.
+**Gate once errors are zero,** in the hook and CI together. With a clean codebase, `--blocking error` fires only on errors a change introduces.
+
+- **Hook, always scoped:** `npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error` in the Stop hook.
+- **CI, a full scan when it fits the PR budget:** `npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --blocking error`. A scoped scan saves less than it seems, because startup takes a big share of either. A full scan needs no git history, and it catches what a changed-files scope can't, such as a removed suppression or a changed lint config. Only when it doesn't fit, scope it with `--scope changed --base origin/<target branch>` and fetch the full history (section 10).
+- `react-doctor ci install` generates a GitHub Actions workflow that also comments findings on PRs; use it instead if the team wants the comments, and add the release-age gate and flags.
+
+**Warnings report by default:** they don't block. Fix them in code a PR already touches. A rule with a real cluster of hits can become its own cleanup step; the rest stay in the scheduled report.
+
+**If the team wants warnings to block too** (the audit asks), they get the errors' path: a warnings cleanup step, split by rule group if it gets long, then the gate with `--blocking warning`. If the error gate is already in, that step only switches the flag.
+
+**Keep the scheduled full run after the gate.** `@latest` brings new rules with each release. Without the scheduled run, a new rule first shows up as a block on some unrelated PR.
 
 **The score is a diagnostic.** Don't put a number on it in CI.
 
-**Its agent skill is optional.** The package ships one at `dist/skills/react-doctor/`; `npm pack --min-release-age=7 react-doctor@latest` fetches it. The Stop hook already gives the agent the findings, so the skill is extra guidance on how to fix them. If the team wants it, copy it into the agent's skills directory and adjust it in the PR: add `--min-release-age=7` and `--no-telemetry --no-supply-chain` to its `npx react-doctor@latest` calls, and drop the rule that treats a score drop as something to fix. Its `/doctor` flow fetches a playbook from react.doctor at run time; keep that section only if the team is fine with the agent following remote instructions.
+**`react-doctor design` is opt-in.** It runs the UI design rules that a full scan leaves out, and it's cheap. Triage its first run like any new rule.
+
+- **It exits 0 when it has findings,** even with `--blocking`. A gate checks the `diagnostics.json` it writes to `--output-dir` instead: `npx -y --min-release-age=7 react-doctor@latest design --no-telemetry --output-dir reports/react-doctor-design && jq -e 'length == 0' reports/react-doctor-design/diagnostics.json`.
+- **It scans framework template files** (`.astro`, `.vue`, `.svelte`), so their extensions belong in the hook's file glob and the CI path filter.
+
+**Its agent skill is optional.** The package ships one at `dist/skills/react-doctor/`; `npm pack --min-release-age=7 react-doctor@latest` fetches it. The Stop hook already gives the agent the findings, so the skill is extra guidance on how to fix them. If the team wants it, copy it into the agent's skills directory and adjust it in the PR: add `-y --min-release-age=7` and `--no-telemetry --no-supply-chain` to its `npx react-doctor@latest` calls, and drop the rule that treats a score drop as something to fix. Its `/doctor` flow fetches a playbook from react.doctor at run time; keep that section only if the team is fine with the agent following remote instructions.
+
+## Trim the rules file
+
+The last step of the plan. A rules file is read once per session and competes for the model's attention, so a line that a check now enforces is a second copy of the rule: the check catches what the line asked for whether or not the model read it, and the two drift apart when the config changes.
+
+**Inventory what blocks.** A check enforces a rule only where it fails: a tsconfig flag, a lint rule at `error`, a warning the hooks deny on changed files, a boundary policy, a project rule in `anti-slop/lint-rules/`, knip or jscpd at their gate, react-doctor with `--blocking`, the Stop hook, pre-commit, and the CI jobs. The plan's status table and `todo.md` list most of it; the configs settle the rest. A warning that CI only prints isn't enforcement yet: its line stays until the rule is promoted.
+
+**Read every rules file** the probe lists (its `scars` section prints their prohibition lines, code-like ones first), plus the files they import. For each line that tells the model what to do or not do:
+
+- **A check fails on exactly what the line forbids** ("never use `any`" with `no-explicit-any` as an error, "no effects for derived state" with the effect rules, "services don't import components" with its boundary policy, "run the tests before you finish" with the Stop hook): delete the line. If it carried a reason the rule's message doesn't, move the reason into the message.
+- **A check covers the mechanical part and the line carries judgment** ("prefer `Map` over an index lookup that may miss" next to `noUncheckedIndexedAccess`): cut it to the judgment half.
+- **No check covers it:** keep it. If it's machine-checkable, it's a scar-rule candidate: add it to the plan's table rather than writing the rule in this step.
+
+The rollout's own Conventions section gets the same test: its "no new `!`, `as any`" clause goes once those rules are errors, while "fix, don't silence" stays, since nothing checks for a new disable comment. The commands list stays as it is: it's how the model runs the checks.
+
+**Keep** what no check sees: product context, architecture, where things live, how to run the app, review conventions. The step makes the file shorter, not emptier.
