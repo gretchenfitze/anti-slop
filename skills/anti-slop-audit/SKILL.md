@@ -46,7 +46,7 @@ The post's test is three conditions: **the code outlives a quarter, someone othe
 - **If the stack matches [ts-workbench](https://github.com/mikhin/ts-workbench)** (pnpm with Vite + React, or NestJS) and the team wants the full strictness, recommend starting from that template and stop. It has every move applied, plus rules from its author's taste beyond the post (file and function length caps, no comments, no classes): say so, so the team can drop what it doesn't want.
 - **Otherwise, write a day-one plan** of two or three steps:
   - **Everything as errors:** strict TypeScript flags, the lint presets, the agent hook, knip and jscpd. The probe's counts are near zero, so there's no backlog to protect.
-  - **A CI job per check** from the first PR.
+  - **Every check in CI** from the first PR.
   - **Deferred until there's something to protect:** layer boundaries (once the source tree has layers), scar rules (after the first incident), mutation testing (once there's logic with tests), and the API contract (once a spec exists). Each gets a skip entry that names its trigger.
 
 ## 3. Judge each move
@@ -80,13 +80,13 @@ A check catches slop only where it runs, and it survives only if it doesn't slow
 - **Seconds here:** the probe's Timings, plus the lint and test runs timed in step 1.
 - **Who writes the code:** the agent files and hooks the probe lists. A Stop hook covers only the agents that run it; name the others in the plan's Assumptions.
 - **How code reaches the default branch:** the probe's PR merges. Zero can also mean rebase merges, so check (`gh pr list --state merged --limit 5`) before concluding the team pushes straight to it. Without PRs, CI runs on push and reports after the fact, so the hooks become the gate.
-- **CI:** the provider, whether anything already runs on a schedule, and how long the slowest job takes now (`gh run list` shows it when `gh` is available).
+- **CI:** the provider, whether anything already runs on a schedule, and how long the slowest job takes now (`gh run list` shows it when `gh` is available). Also the probe's count of recent commits that touched no code or config: when it's a large share, a changes job that skips each check on PRs that can't affect it is worth a plan step (the rollout recipe's CI section).
 
 Then fill the moments. These budgets are defaults; the team can move them:
 
-- **Agent turn** (Stop hook): changed-files lint and react-doctor, plus whole-project checks that report new findings only (typecheck on a clean baseline, knip at zero, jscpd new clones). The checks run in parallel, and the whole hook stays under about 30 seconds, because it runs after every turn.
-- **Pre-commit:** the file-scoped lint for humans, under about 10 seconds, or people reach for `--no-verify`. react-doctor's startup alone takes most of that, so it runs in the agent hook and PR CI instead.
-- **PR CI:** one job per check, if it finishes within the slowest existing job's time. A check that's slower but still useful on the diff, like mutation testing on changed files, runs non-blocking.
+- **Agent turn** (Stop hook): changed-files lint and react-doctor, plus whole-project checks that report new findings only (typecheck on a clean baseline, the unit suite, knip at zero, jscpd at zero or new clones). Changed-files lint can't see what a change breaks elsewhere, like the unchanged callers of a function that gained a required parameter; the whole-project checks can. The checks run in parallel, and the whole hook stays under about 30 seconds, because it runs after every turn.
+- **Pre-commit:** the file-scoped lint for humans, plus any whole-project check that takes under a second (jscpd at zero clones), under about 10 seconds in all, or people reach for `--no-verify`. react-doctor's startup alone takes most of that, so it runs in the agent hook and PR CI instead.
+- **PR CI:** a named step per check, with fast checks that share an install grouped into one job (each job pays for its own checkout and install), if it finishes within the slowest existing job's time. A check that's slower but still useful on the diff, like mutation testing on changed files, runs non-blocking.
 - **Scheduled:** whole-project runs too slow or too noisy for a PR, such as the full mutation run, full react-doctor, the jscpd backlog, and semantic duplicates. Add this row only if at least one such check is adopted and someone is named to read the report; a report nobody reads is noise. Run it weekly by default, or monthly when the repo gets only a few commits a week. A tool that runs as `@latest` (react-doctor) keeps its scheduled run after its gate: otherwise a rule from a new release first shows up as a block on some unrelated PR.
 - **Re-audit:** when the last rollout step lands, then quarterly or after a big change (a new framework, the team doubling). This is when ignore lists and rules that caught nothing get reviewed.
 

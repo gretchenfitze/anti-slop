@@ -286,6 +286,12 @@ for (const file of codeFiles) {
 }
 
 const gitOut = (argv) => run('git', argv).out.trim();
+// Files each non-merge commit changed. One touching no code or config is a PR a CI changes job could skip.
+const commitFiles = gitOut(['log', '--no-merges', '--since=90.days', '--format=%x00', '--name-only', 'HEAD'])
+  .split('\0')
+  .slice(1)
+  .map((s) => s.split('\n').filter(Boolean));
+const CHECKED_RE = /\.(?:jsonc?|ya?ml|lockb?|s?css)$/;
 const repo = {
   firstCommit: gitOut(['log', '--max-parents=0', '--format=%ad', '--date=short']).split('\n').pop() || null,
   commitsLast90Days: Number(gitOut(['rev-list', '--count', '--since=90.days', 'HEAD'])) || 0,
@@ -293,6 +299,8 @@ const repo = {
   prMergesLast90Days: gitOut(['log', '--since=90.days', '--format=%s', 'HEAD'])
     .split('\n')
     .filter((s) => PR_MERGE_RE.test(s)).length,
+  nonMergeCommitsLast90Days: commitFiles.length,
+  noCodeCommitsLast90Days: commitFiles.filter((names) => !names.some((f) => CODE_RE.test(f) || CHECKED_RE.test(f))).length,
   codeFiles: codeFiles.length,
   sourceFiles: sourceFiles.length,
   testFiles: codeFiles.filter((f) => TEST_RE.test(f) && !isE2e(f)).length,
@@ -749,7 +757,7 @@ if (result.stack) {
     `- CI: ${s.ci.files.join(', ') || 'none'}; checks seen: ${s.ci.checks.join(', ') || 'none'}; scheduled runs: ${s.ci.scheduled ? 'yes' : 'none'}`,
     `- API: specs ${s.api.specs.join(', ') || 'none'}; tooling ${s.api.tooling.join(', ') || 'none'}; fetch( ${result.signals.fetchCalls}, axios ${result.signals.axiosCalls}`,
     `- boundary tooling: ${s.boundaryTooling.join(', ') || 'none'}; source dirs: ${kv(top(s.topLevelSourceDirs, 15))}`,
-    `- repo: since ${result.repo.firstCommit}, ${result.repo.commitsLast90Days} commits (${result.repo.prMergesLast90Days} PR merges) and ${result.repo.authorsLast90Days} authors in 90 days, ${result.repo.sourceFiles} source files, ${result.repo.sourceLines} lines`,
+    `- repo: since ${result.repo.firstCommit}, ${result.repo.commitsLast90Days} commits (${result.repo.prMergesLast90Days} PR merges) and ${result.repo.authorsLast90Days} authors in 90 days (${result.repo.noCodeCommitsLast90Days} of ${result.repo.nonMergeCommitsLast90Days} non-merge commits touched no code or config), ${result.repo.sourceFiles} source files, ${result.repo.sourceLines} lines`,
     `- signals: useEffect ${result.signals.useEffect}, vi.mock ${result.signals.viMock}, jest.mock ${result.signals.jestMock}`,
     `- suppressions: ${kv(result.suppressions)}`,
     `- mutation: runners ${result.mutation.runners.join(', ') || 'none'}, Stryker runner ${result.mutation.strykerRunnerAvailable ? 'available' : 'not available'}`,

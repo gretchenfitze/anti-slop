@@ -141,13 +141,13 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 **Probe:** `jscpd.logic` (ts/js), `jscpd.components` (tsx/jsx), `jscpd.styles` (css/scss). Judge them separately: repeated JSX and CSS can be intentional, repeated business logic is a maintenance risk. In React code, hooks and handlers live in `.tsx`, so read the largest component clones for logic too. Name the two or three clones worth merging.
 
-**Done looks like:** logic and markup checked as separate jscpd runs, with stricter minimums for logic. The gate fails on *new* clones only (`--baseline-from-ref <base> --fail-on-new-clones`, jscpd 5.4+), so the existing backlog doesn't block anyone. A triage script that groups clones by fragment helps only with a big backlog (dozens of logic clones or more).
+**Done looks like:** logic and markup checked as separate jscpd runs, with stricter minimums for logic. The gate fails on *new* clones only (`--baseline-from-ref <base> --fail-on-new-clones`, jscpd 5.4+), so the existing backlog doesn't block anyone. At zero clones, a plain run with `"threshold": 0` is the gate, and it's fast enough for pre-commit. A triage script that groups clones by fragment helps only with a big backlog (dozens of logic clones or more).
 
 **Limit:** plain jscpd finds textual similarity only, and two independent implementations of one rule look different. jscpd 5.4 adds `--similarity` (near-miss functions by AST) and an experimental `--semantic` mode that compares function embeddings with a local 548 MB model. Offer semantic as an occasional report, not a gate, and say it needs a one-time model download.
 
 ## 10. CI gate
 
-**A check is mandatory only when CI blocks the branch.** One job per check (format+lint, typecheck, unit tests, mutation on the PR diff, build), deploys depend on them.
+**A check is mandatory only when CI blocks the branch.** A named step per check (format+lint, typecheck, unit tests, mutation on the PR diff, build), with fast checks that share an install grouped into one job, since each job pays for its own checkout and install. Deploys depend on the jobs.
 
 **Probe:** `stack.ci.checks` against the project's scripts. A check that exists as a script but not in CI (unit tests are the usual one) is a cheap, high-value gap: put it early in the plan.
 

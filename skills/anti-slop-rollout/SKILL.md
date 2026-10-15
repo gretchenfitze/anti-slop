@@ -63,11 +63,11 @@ Add the **Conventions** section from recipes.md to the project's agent rules fil
 ## 6. Verify
 
 - **New commands:** run each one and compare the result with the step's "Done when". Check that the output really comes from the tool: a script name that collides with a package manager built-in runs the built-in and exits 0.
-- **Detectors:** prove each one finds something. Plant a dead file, a stale mock, or a duplicated block, see it reported, then remove the plant. For react-doctor, plant an effect that adds a listener without cleanup.
+- **Detectors:** prove each one finds something: plant a violation, see it reported, then remove the plant. If the hook auto-fixes (`--fix`), plant something it can't repair: it rewrites a `@ts-ignore` into `@ts-expect-error`, and the plant vanishes. Plants that hold: a required parameter added to a function with unchanged callers (typecheck), a failing assertion (tests), an unimported file and an unused export (knip), a stale mock, a copied module (jscpd), an effect that adds a listener without cleanup (react-doctor).
 - **Project lint rules:** the fixture test passes, and the rule fires on the code from before the incident's fix (`git show <sha>^:<file>`).
 - **The rules-file trim:** each deleted line is listed in the PR next to the check that enforces it. Where you're not sure the check fires, plant the violation and run the check on it.
 - **The project's existing checks:** run the ones the change can affect (lint, typecheck, unit tests, build). If something fails that you can't fix within this step, report it with the output. Don't hide it.
-- **What only a real PR shows:** whether a path filter skips the job when it should, whether a required check reports its status, and whether a schedule runs (only after merge, from the default branch). If the step touches any of these, list them in a short "Verify on this PR" note for the PR description.
+- **What only a real PR shows:** whether a path filter or a changes job skips the job when it should, whether a required check reports its status, and whether a schedule runs (only after merge, from the default branch). A changes job can't show its skip on the PR that adds it: the workflow is a shared input, so every push runs everything; verify it on the next content-only PR. If the step touches any of these, list them in a short "Verify on this PR" note for the PR description.
 
 ## 7. Update the plan
 
@@ -83,6 +83,7 @@ Commit in the project's message style (short and imperative if nothing says othe
 - the numbers before → after
 - what's deferred to later steps
 - how to run the check locally
+- every branch-protection change the PR needs (new required jobs, renamed ones, a changes job): those settings live outside the repo
 - the "Verify on this PR" note from step 6, if there is one
 
 Link the plan step (in local mode, its path and number: `anti-slop/todo.md`, step N).

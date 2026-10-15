@@ -18,12 +18,12 @@ Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conv
 
 **Git hooks.** Use what the project has:
 
-- **lefthook:** add a job to the `pre-commit` group, and to the group the agent hook runs if there is one.
+- **lefthook:** add a job to the `pre-commit` group, and to the group the agent hook runs if there is one. Its globs match paths without a separator, so `**/*.json` misses root files like `package.json` and `tsconfig.json`: write `*.{js,ts,json}`.
 - **husky** with lint-staged or nano-staged: add a glob entry.
 - **simple-git-hooks:** edit its command.
 - **Nothing:** add `nano-staged` with `simple-git-hooks`, the lightest pair.
 
-**CI.** The recipes show GitHub Actions; the project's existing CI config says which provider it has. Keep the shape in that provider's syntax: one job per check, full history and the PR's target branch fetched for diff-based jobs, non-blocking for the slow ones, a PR comment posted through the forge CLI. The bundled scripts take the base ref as an argument and print markdown, so they run anywhere. GitLab: `GIT_DEPTH: 0` for full history, `git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"` for the base ref, `glab mr note` for the comment.
+**CI.** The recipes show GitHub Actions; the project's existing CI config says which provider it has. Keep the shape in that provider's syntax: a named step per check and a job per shared install (section 10), full history and the PR's target branch fetched for diff-based jobs, non-blocking for the slow ones, a PR comment posted through the forge CLI. The bundled scripts take the base ref as an argument and print markdown, so they run anywhere. GitLab: `GIT_DEPTH: 0` for full history, `git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"` for the base ref, `glab mr note` for the comment.
 
 **Package scripts.** Name them after what they do (`deadcode`, `dup`, `mutation`), match the existing naming style (`lint:scripts` vs `lint-scripts`), and call the tool directly, not through `npx`. Don't reuse a package manager built-in: `pnpm doctor`, `pnpm audit`, `pnpm outdated`, `npm doctor` and friends run the built-in instead of your script, exit 0, and look like success.
 
@@ -39,6 +39,7 @@ Add a section to the project's agent rules file (AGENTS.md, or CLAUDE.md if that
 Rolled out step by step from `anti-slop/todo.md`; the reasoning is in `anti-slop/plan.md`.
 
 - Fix what a check finds; don't silence it. No new `!`, `as any`, `@ts-expect-error`, or disable comments to get a check green.
+- Lint warnings fail the hooks on changed files and only print in CI, so a new rule starts as a warning that touched code must pass. The Stop hook also runs whole-project checks (typecheck, tests), so it can report a file the change didn't touch.
 - Every ignore entry (knip `ignore`, jscpd `ignore`, lint `overrides`, a disable comment) carries a comment saying why. Review the lists when they grow: each entry is code a detector was told not to look at.
 - A lint message says what failed, why the rule exists, and what to do instead.
 - A project lint rule (`anti-slop/lint-rules/`) names the incident behind it: a commit, PR, or bug. No incident, no rule.
@@ -61,8 +62,8 @@ Each check runs at the cheapest moment that still catches what it's for. The pla
 |---|---|---|
 | Every agent turn and commit, on changed files | lint rules (presets, boundaries, project rules) | the agent Stop hook and pre-commit (section 6) |
 | Every agent turn, on changed files | react-doctor `--scope changed --base HEAD` (about 13 s) | the Stop hook only: it's over the pre-commit budget, and its startup alone takes most of it |
-| Every agent turn, whole project but fast | knip (about 3 s with `--cache`), jscpd new clones (about 11 s with `--baseline-from-ref HEAD --fail-on-new-clones`) | add to the Stop hook only once the backlog is zero or the check reports new findings only |
-| Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor (a full scan, or on the diff when that doesn't fit; blocks on errors once they're zero), mutation testing on changed files (non-blocking) | one CI job per check (section 10) |
+| Every agent turn, whole project but fast | typecheck on a clean baseline (about 5 s), the unit suite, knip at zero (about 3 s with `--cache`), jscpd (under a second as a plain run at zero clones, about 11 s in baseline mode) | the Stop hook, once the check reports new findings only and while the whole hook stays under budget (section 6); a sub-second one can join pre-commit too |
+| Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor (a full scan, or on the diff when that doesn't fit; blocks on errors once they're zero), mutation testing on changed files (non-blocking) | CI, a named step per check (section 10) |
 | Weekly | full jscpd report (`dup:top`), full react-doctor (kept after its gate, see react-doctor), full mutation run | the scheduled report below, when the plan has a Scheduled row |
 | Re-audit | ignore lists, rules that caught nothing, new numbers | rerun `anti-slop-audit` when the plan says |
 
@@ -269,7 +270,11 @@ The template is in `assets/lint-rules/`. Copy it to `anti-slop/lint-rules/`, del
 
 The hook exits 2 so Claude Code sends the findings back and the agent fixes them before it finishes. It stands down on the second block in a row so an unfixable finding can't loop. That's why one block must carry every failure: the script runs its checks in parallel and reports them all. A hook that chains checks with `&&` reports only the first failure, and the stand-down then skips the rest until the next prompt.
 
-**Pre-commit:** the file-scoped lint for humans, through the project's hook tool (see Adapting to the stack).
+**Whole-project checks join the hook** once they report new findings only: typecheck on a clean baseline, the unit suite, knip and jscpd at zero. Changed-files lint sees only the files it lints, so when a function gains a required parameter, only the typecheck reports its unchanged callers. Add them while the whole hook stays within the plan's budget, timed with and without a code change.
+
+**Trigger each check on what it reads.** The template lints changed source files, but runs the whole-project checks on any change outside the content folders: tsc and the tests read imported JSON, `package.json`, and `tsconfig.json`, and knip's plugins read the configs and workflows they know, so a turn that edits only one of those can still break the build or orphan a module.
+
+**Pre-commit:** the file-scoped lint for humans, plus any whole-project check that takes under a second (jscpd at zero, section 9), through the project's hook tool (see Adapting to the stack).
 
 **Other agents:** Cursor, Codex, and others have their own hook or rules mechanisms. Wire the same script where the project uses them, and say in the PR which agents are covered.
 
@@ -336,7 +341,9 @@ The comment lists surviving mutants on changed lines. A survivor is a missing as
 - **Test files reported unused:** the test runner isn't recognized (custom wrappers, `node --test` through another binary). Add the test glob to `entry`.
 - **Dependencies used by string** in a config: `ignoreDependencies`, with the reason.
 
-**Cleanup PR:** delete what's verifiably dead (grep before deleting), remove unused exports or make them file-local, and drop unused dependencies. Then add `deadcode: knip` and a CI job. Once it reports zero, the job is the gate and `knip --cache` can join the Stop hook.
+**Cleanup PR:** delete what's verifiably dead (grep before deleting), remove unused exports or make them file-local, and drop unused dependencies. Then add `deadcode: knip` and a CI step. Once it reports zero, the step is the gate and `knip --cache` can join the Stop hook.
+
+knip doesn't track object properties, so a dead export can be the only reader of metadata on live entries (a name or description on each). Once the export goes, delete that metadata too.
 
 **Narrow ignores:** `ignore` hides every issue type in a file. `ignoreFiles` only keeps it out of the unused-files report, and `ignoreIssues` silences one issue type for one file (`"postcss/plugin.js": ["exports"]`). Use the narrowest one that fits. Resolve knip's "Configuration hints" too (redundant entries, unused ignores), except the entries the reachability walk needs (below).
 
@@ -372,7 +379,9 @@ The comment lists surviving mutants on changed lines. A survivor is a missing as
 **Scripts:**
 
 - `dup`: `jscpd && jscpd --config .jscpd.markup.json`. Full report, never fails.
-- `dup:new`: both configs with `--baseline-from-ref origin/<default-branch> --fail-on-new-clones`. Fails only on clones the branch adds; CI runs this.
+- `dup:new`: both configs with `--baseline-from-ref origin/<default-branch> --fail-on-new-clones`. Fails only on clones the branch adds; CI runs this while there's a backlog.
+
+**At zero clones, drop the baseline.** Baseline mode is for a backlog. Once the count is zero, set `"threshold": 0` in each config and run jscpd plain: it fails on any clone and takes well under a second on a mid-size repo, against about 11 s for the baseline compare. That's cheap enough for pre-commit as well as the Stop hook and CI.
 - `dup:top`: `jscpd -r json -o reports/jscpd -s && node anti-slop/jscpd-top.mjs`. Groups the backlog by fragment for triage. Copy `assets/scripts/jscpd-top.mjs`.
 
 **The backlog** goes into later plan steps: one PR per worthwhile merge, named in the plan.
@@ -381,17 +390,24 @@ The comment lists surviving mutants on changed lines. A survivor is a missing as
 
 ## 10. CI gate
 
-**One job per check,** so a failure is visible without digging through a combined log: format and lint, typecheck, unit tests, build, then each detector as it reaches its gate. Deploys depend on them (`needs:`).
+**A step per check, a job per install.** Each check is its own named step, so a failure shows in the UI without digging through a combined log. Each job pays for checkout and install (often a minute or more), so fast whole-tree checks that share an install run as steps of one job; a slow check or one with its own setup (build, e2e, mutation) gets its own job. Detectors join as they reach their gate. Deploys depend on the jobs (`needs:`).
+
+- **A check that needs another job's output** runs as a step of that job, not as a new job that checks out again and downloads the artifact: minutes of setup for a compare that takes a second.
+- **Job names are the required-check names** in branch protection. Adding, renaming, or merging a job is a settings change outside the repo: list it in the PR description.
 
 The worked example is GitHub Actions, matching the project's existing setup steps; CI in Adapting to the stack covers other providers:
 
 ```yaml
-  deadcode:
+  detectors:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@<pinned>
       # the same pnpm/node setup and install steps the other jobs use
-      - run: pnpm deadcode
+      - name: deadcode
+        run: pnpm deadcode
+      - name: dup
+        if: ${{ !cancelled() }} # still runs when the step above fails, so one run reports both
+        run: pnpm dup
 ```
 
 **Fetch history for diff-based jobs:** `dup:new` and react-doctor on the diff need the full history and the PR's target branch as the base ref (GitHub Actions: `fetch-depth: 0` and `origin/${{ github.base_ref }}`).
@@ -401,8 +417,52 @@ The worked example is GitHub Actions, matching the project's existing setup step
 **Path filters** (GitHub `on.pull_request.paths`, GitLab `rules: changes:`) save CI minutes, but they have traps:
 
 - **List everything that changes the result:** the check's own config, any config it extends, `package.json` (the script's flags), and the CI config itself.
-- **GitHub: a workflow skipped by `paths:` reports no status,** so as a required check it blocks every PR it skips. Don't path-filter a required check: a cached install is all the filter saves.
+- **GitHub: a workflow skipped by `paths:` reports no status,** so as a required check it blocks every PR it skips. Don't put `paths:` on a required check; use a changes job (below).
 - **GitHub's filter syntax has no brace expansion,** so each extension needs its own line (`'**.ts'`, `'**.tsx'`).
+
+**Skipping required checks: a changes job.** Worth it when many PRs touch no code (the audit's probe counts recent commits that touched no code or config). A first job lists the PR's files and sets one output per check, and each check's job carries an `if:` on its output. A job skipped by `if:` reports success, so it can stay required:
+
+```yaml
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      lint: ${{ steps.filter.outputs.lint }}
+      detectors: ${{ steps.filter.outputs.detectors }}
+    steps:
+      - id: filter
+        uses: actions/github-script@<pinned>
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            // A rename counts both paths; a deleted file is listed under its own name.
+            const files = pr && (await github.paginate(github.rest.pulls.listFiles, { ...context.repo, pull_number: pr.number }))
+              .flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]));
+            // Inputs every check reads: the manifest, the lockfile, the Node version, this workflow.
+            const shared = /^(package\.json|pnpm-lock\.yaml|\.nvmrc|\.github\/workflows\/ci\.yml)$/;
+            const checks = {
+              // a type-aware linter also reads imported JSON and framework frontmatter
+              lint: /\.([cm]?[jt]sx?|json|astro)$/,
+              // knip's plugins read the configs they know: anything outside the content folders
+              detectors: /^(?!src\/content\/|public\/)/,
+            };
+            for (const [name, re] of Object.entries(checks)) {
+              // no PR payload (a push, a manual run): run everything
+              core.setOutput(name, !files || files.some((f) => shared.test(f) || re.test(f)));
+            }
+  lint:
+    needs: changes
+    if: needs.changes.outputs.lint == 'true'
+    # …
+```
+
+- **The changes job must itself be required.** If it fails, every job that needs it is skipped, and skipped satisfies a required check.
+- **Shared inputs run every job:** the manifest, the lockfile, the Node version file, the workflow itself.
+- **Each filter covers what the tool reads indirectly,** not only the files it checks: the type-aware linter's imported JSON and frontmatter, the configs knip's plugins load.
+- **A job running several checks** takes the union of their filters as its `if:`, and each step can carry its own.
+- **The PR that adds the changes job can't verify the skip:** every push there changes the workflow, a shared input, so everything runs. Say so in the PR description and check on the next content-only PR.
 
 **Cancel superseded runs per branch.** GitHub: a `concurrency` group keyed on `github.ref` (`group: ${{ github.workflow }}-${{ github.ref }}`); a group shared across PRs cancels another PR's pending run, even with `cancel-in-progress: false`. GitLab: `interruptible: true` on the jobs, and the project's auto-cancel setting does the rest per ref.
 

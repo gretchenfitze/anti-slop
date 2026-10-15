@@ -13,10 +13,15 @@ if command -v jq >/dev/null 2>&1 && [ "$(jq -r '.stop_hook_active // false' 2>/d
   exit 0
 fi
 
+# File-scoped checks lint the changed source files.
 # ponytail: word-splits on spaces in file names; switch to xargs -0 if the repo has them.
 files=$({ git diff --name-only --diff-filter=d HEAD; git ls-files --others --exclude-standard; } |
   grep -E '\.([cm]?[jt]sx?|vue|svelte|astro)$' | sort -u)
-[ -z "$files" ] && exit 0
+# Whole-project checks run on any change outside the content folders: tsc and tests read
+# imported JSON, package.json and tsconfig; knip's plugins read configs and workflows.
+# Set the pattern to the folders no check reads.
+project=$({ git diff --name-only HEAD; git ls-files --others --exclude-standard; } | grep -vE '^(docs|public)/')
+[ -z "$files$project" ] && exit 0
 
 bin=./node_modules/.bin
 tmp=$(mktemp -d) || exit 0
@@ -29,12 +34,17 @@ check() {
   { "$@" >"$tmp/$name" 2>&1 || mv "$tmp/$name" "$tmp/$name.failed"; } &
 }
 
-# One line per check. Add a whole-project detector only once its backlog is zero
-# or it reports new findings only. Delete the lines for tools the project doesn't use.
-check oxlint $bin/oxlint --deny-warnings $files
-check knip $bin/knip --cache
-check jscpd $bin/jscpd --config .jscpd.json --baseline-from-ref HEAD --fail-on-new-clones
-check react-doctor npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error
+# One line per check. Delete the lines for tools the project doesn't use.
+[ -n "$files" ] && check oxlint $bin/oxlint --deny-warnings $files
+[ -n "$files" ] && check react-doctor npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error
+# Whole-project: they see what a change breaks in files it didn't touch, like the unchanged
+# callers of a function that gained a required parameter. Add one only while it reports new
+# findings only (a clean baseline, a backlog at zero) and the hook stays within its budget.
+[ -n "$project" ] && check tsc $bin/tsc --noEmit
+[ -n "$project" ] && check test npm test --silent # the unit suite, not e2e
+[ -n "$project" ] && check knip $bin/knip --cache
+# At zero clones with "threshold": 0 in the config; with a backlog, add --baseline-from-ref HEAD --fail-on-new-clones.
+[ -n "$project" ] && check jscpd $bin/jscpd
 wait
 
 for f in "$tmp"/*.failed; do
