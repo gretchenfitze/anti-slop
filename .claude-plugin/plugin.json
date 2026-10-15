@@ -1,7 +1,7 @@
 {
   "name": "anti-slop",
   "displayName": "Anti-slop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Measure which anti-AI-slop checks a TypeScript/React repo needs (contracts, strict TS, sonarjs, boundaries, scar rules, agent hooks, mutation testing, knip, jscpd, react-doctor, CI gates), plan them as small PRs, and roll them out one PR at a time.",
   "author": {
     "name": "Evil Martians",

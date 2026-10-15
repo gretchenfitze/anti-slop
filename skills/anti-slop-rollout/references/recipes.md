@@ -23,7 +23,7 @@ Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conv
 - **simple-git-hooks:** edit its command.
 - **Nothing:** add `nano-staged` with `simple-git-hooks`, the lightest pair.
 
-**CI.** The recipes show GitHub Actions; the project's existing CI config says which provider it has. Keep the shape in that provider's syntax: a named step per check and a job per shared install (section 10), full history and the PR's target branch fetched for diff-based jobs, non-blocking for the slow ones, a PR comment posted through the forge CLI. The bundled scripts take the base ref as an argument and print markdown, so they run anywhere. GitLab: `GIT_DEPTH: 0` for full history, `git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"` for the base ref, `glab mr note` for the comment.
+**CI.** The recipes show GitHub Actions; the project's existing CI config says which provider it has. Keep the shape in that provider's syntax: a named step per check and a job per file set (section 10), full history and the PR's target branch fetched for diff-based jobs, non-blocking for the slow ones, a PR comment posted through the forge CLI. The bundled scripts take the base ref as an argument and print markdown, so they run anywhere. GitLab: `GIT_DEPTH: 0` for full history, `git fetch origin "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"` for the base ref, `glab mr note` for the comment.
 
 **Package scripts.** Name them after what they do (`deadcode`, `dup`, `mutation`), match the existing naming style (`lint:scripts` vs `lint-scripts`), and call the tool directly, not through `npx`. Don't reuse a package manager built-in: `pnpm doctor`, `pnpm audit`, `pnpm outdated`, `npm doctor` and friends run the built-in instead of your script, exit 0, and look like success.
 
@@ -390,8 +390,9 @@ knip doesn't track object properties, so a dead export can be the only reader of
 
 ## 10. CI gate
 
-**A step per check, a job per install.** Each check is its own named step, so a failure shows in the UI without digging through a combined log. Each job pays for checkout and install (often a minute or more), so fast whole-tree checks that share an install run as steps of one job; a slow check or one with its own setup (build, e2e, mutation) gets its own job. Detectors join as they reach their gate. Deploys depend on the jobs (`needs:`).
+**A step per check, a job per file set.** Each check is its own named step, so a failure shows in the UI without digging through a combined log. Without a changes job (every check runs on every PR), fast whole-tree checks that share an install run as steps of one job, since each job pays for checkout and install (often a minute or more); a slow check or one with its own setup (build, e2e, mutation) gets its own job. With a changes job (below), the job is what gets skipped, what reports as a required check, and what gets rerun, so it's one job per file set: checks share a job only when their filters match the same files or one filter sits inside the other. The job's `if:` is the wider filter, and the narrower check's step carries its own. Checks with different filters get separate jobs, so each skips on its own and shows its own status. In one job, the `if:` would be the union of their filters, every step would need its own guard, a green job would stop saying which checks ran, and setup only one check needs (type generation, say) would run for all of them; the install saved only matters on PRs that match several filters. The `detectors` job below holds deadcode and dup because jscpd's filter sits inside knip's. Detectors join as they reach their gate. Deploys depend on the jobs (`needs:`).
 
+- **Every step after the first needs `!cancelled()` in its `if:`,** even a step that already has a filter: `if: ${{ !cancelled() && needs.changes.outputs.dup == 'true' }}`. A custom `if:` without a status function gets an implicit `success() &&`, so one failed check silently skips the rest.
 - **A check that needs another job's output** runs as a step of that job, not as a new job that checks out again and downloads the artifact: minutes of setup for a compare that takes a second.
 - **Job names are the required-check names** in branch protection. Adding, renaming, or merging a job is a settings change outside the repo: list it in the PR description.
 
@@ -461,7 +462,7 @@ jobs:
 - **The changes job must itself be required.** If it fails, every job that needs it is skipped, and skipped satisfies a required check.
 - **Shared inputs run every job:** the manifest, the lockfile, the Node version file, the workflow itself.
 - **Each filter covers what the tool reads indirectly,** not only the files it checks: the type-aware linter's imported JSON and frontmatter, the configs knip's plugins load.
-- **A job running several checks** takes the union of their filters as its `if:`, and each step can carry its own.
+- **A job running several checks** holds only checks with the same or nested filters: the job takes the wider filter as its `if:`, and the narrower step adds its own with `!cancelled()`. Checks with different filters get separate jobs.
 - **The PR that adds the changes job can't verify the skip:** every push there changes the workflow, a shared input, so everything runs. Say so in the PR description and check on the next content-only PR.
 
 **Cancel superseded runs per branch.** GitHub: a `concurrency` group keyed on `github.ref` (`group: ${{ github.workflow }}-${{ github.ref }}`); a group shared across PRs cancels another PR's pending run, even with `cancel-in-progress: false`. GitLab: `interruptible: true` on the jobs, and the project's auto-cancel setting does the rest per ref.

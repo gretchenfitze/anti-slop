@@ -147,7 +147,7 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 ## 10. CI gate
 
-**A check is mandatory only when CI blocks the branch.** A named step per check (format+lint, typecheck, unit tests, mutation on the PR diff, build), with fast checks that share an install grouped into one job, since each job pays for its own checkout and install. Deploys depend on the jobs.
+**A check is mandatory only when CI blocks the branch.** A named step per check (format+lint, typecheck, unit tests, mutation on the PR diff, build); fast checks that share an install run in one job when every check runs on every PR, and with a changes job it's one job per file set, so checks share a job only when their filters match or one sits inside the other. Deploys depend on the jobs.
 
 **Probe:** `stack.ci.checks` against the project's scripts. A check that exists as a script but not in CI (unit tests are the usual one) is a cheap, high-value gap: put it early in the plan.
 
