@@ -136,17 +136,50 @@ const ciFiles = files.filter((f) =>
 const ciText = ciFiles.map(read).join('\n');
 // Commit subjects that GitHub, GitLab, and Bitbucket write when a PR merges. Rebase merges leave none.
 const PR_MERGE_RE = /^Merge pull request #|\(#\d+\)$|^Merged in .+\(pull request #\d+\)|^Merge branch '.+' into '/;
-// CI usually calls package scripts by name: pull their bodies in so `pnpm lint` counts as oxlint.
-const ciHaystack = [
-  ciText,
-  ...Object.entries(scripts)
-    .filter(([name]) =>
-      new RegExp(`(?:run|pnpm|yarn|bun)\\s+(?:run\\s+)?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`, 'm').test(ciText),
-    )
-    .map(([, body]) => body),
-].join('\n');
+const invokes = (text, name) =>
+  new RegExp(`(?:npm|run|pnpm|yarn|bun)\\s+(?:run\\s+)?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`, 'm').test(text);
+// CI and hooks usually call package scripts by name: pull their bodies in so `pnpm lint` counts as oxlint.
+const withBodies = (text) =>
+  [
+    text,
+    ...Object.entries(scripts)
+      .filter(([name]) => invokes(text, name))
+      .map(([, body]) => body),
+  ].join('\n');
+const ciHaystack = withBodies(ciText);
 
 const claudeSettings = readJson('.claude/settings.json');
+// Git and agent hook configs, plus the script files they call (the agent Stop hook's checker).
+const hookConfigText = [
+  ...files.filter((f) => /^\.?lefthook(?:-local)?\.ya?ml$|^\.husky\/|^\.lintstagedrc|^lint-staged\.config\.|^\.nano-staged/.test(f)).map(read),
+  JSON.stringify([claudeSettings?.hooks, rootPkg['simple-git-hooks'], rootPkg['lint-staged'], rootPkg['nano-staged']]),
+].join('\n');
+const hookHaystack = withBodies(
+  [hookConfigText, ...files.filter((f) => f.includes('/') && !f.endsWith('.json') && hookConfigText.includes(f)).map(read)].join('\n'),
+);
+// A script's command up to its first flag or argument (`oxlint` for `oxlint --fix`, `astro check`), since
+// CI often calls the tool directly; null when that leaves only a runner.
+const commandOf = (body) => {
+  const words = [];
+  for (const word of body.split(/\s+/)) {
+    if (/^\w+=/.test(word) && words.length === 0) continue;
+    if (/^[-"'$|&]|[*{]/.test(word)) break;
+    words.push(word);
+  }
+  const command = words.join(' ');
+  return /^(?:node|npx|pnpm|npm|yarn|bun|tsx)?$/.test(command) ? null : command;
+};
+// Package scripts that look like checks, and what runs each one. A check CI doesn't run is a free gap.
+const checkScripts = Object.fromEntries(
+  Object.keys(scripts)
+    .filter((name) => /lint|test|check|audit/i.test(name) && !/fix|watch|update|build|dev/i.test(name))
+    .map((name) => {
+      const command = commandOf(scripts[name]);
+      const runsIn = (haystack) => invokes(haystack, name) || Boolean(command && haystack.includes(command));
+      return [name, pick({ ci: () => runsIn(ciHaystack), hook: () => runsIn(hookHaystack) })];
+    }),
+);
+const scriptChecks = { checks: checkScripts, notInCi: Object.keys(checkScripts).filter((n) => !checkScripts[n].includes('ci')) };
 const playwrightConfig = files.find((f) => /(?:^|\/)playwright\.config\.[cm]?[jt]s$/.test(f));
 const playwrightTestDir = playwrightConfig
   ? (read(playwrightConfig)?.match(/testDir\s*:\s*['"`]([^'"`]+)/)?.[1] ?? null)
@@ -315,7 +348,7 @@ const mutation = {
   testFiles: repo.testFiles,
 };
 
-if (want('stack')) Object.assign(result, { stack, repo, signals, suppressions, mutation });
+if (want('stack')) Object.assign(result, { stack, scripts: scriptChecks, repo, signals, suppressions, mutation });
 
 // ---------------------------------------------------------------- tsc
 
@@ -393,7 +426,41 @@ const NATIVE_RULES = [
   'typescript/consistent-type-definitions',
   'typescript/explicit-module-boundary-types',
   'import/no-cycle',
+  // stands in for sonarjs/no-dead-store, and isn't in `correctness`
+  'no-useless-assignment',
 ];
+// sonarjs recommended rules that inspect one library's API: left out unless a package.json depends on
+// one of the packages (a trailing `/` matches a scope), so lint.config can be copied as is.
+// `cors` stays: it also checks Node's own `res.writeHead`.
+const SONAR_LIBRARY_RULES = [
+  [/^aws-/, ['aws-cdk-lib', '@aws-cdk/']],
+  [/^(?:content-security-policy|no-mime-sniff|no-referrer-policy|strict-transport-security)$/, ['helmet']],
+  [/^x-powered-by$/, ['express', 'helmet']],
+  [/^(?:insecure-cookie|cookie-no-httponly|no-session-cookies-on-static-assets)$/, ['express', 'express-session', 'cookie-session', 'cookies', 'csurf']],
+  [/^csrf$/, ['csurf']],
+  [/^production-debug$/, ['errorhandler']],
+  [/^(?:file-uploads|content-length)$/, ['formidable', 'multer', 'body-parser']],
+  [/^session-regeneration$/, ['passport']],
+  [/^insecure-jwt-token$/, ['jsonwebtoken']],
+  [/^sql-queries$/, ['sequelize', 'knex', 'pg', 'pg-promise', 'mysql', 'mysql2', 'better-sqlite3']],
+  [/^xml-parser-xxe$/, ['libxmljs', 'libxmljs2']],
+  [/^disabled-auto-escaping$/, ['markdown-it', 'handlebars', 'mustache', 'marked', 'kramed']],
+  [/^dompurify-unsafe-config$/, ['dompurify', 'isomorphic-dompurify']],
+  [/^review-blockchain-mnemonic$/, ['ethers', 'viem']],
+  [/^no-angular-bypass-sanitization$/, ['@angular/core']],
+  [/^(?:no-vue-class-component|no-vue-mixins|no-mutate-reactive-state-in-updated-hook)$/, ['vue']],
+  [/^(?:prefer-native-lodash-alternative|memoize-cache-key|no-debounce-throttle-in-render)$/, ['lodash', 'lodash-es', 'underscore']],
+  [/^prefer-native-jquery-alternative$/, ['jquery']],
+  [/^prefer-native-axios-alternative$/, ['axios']],
+  [/^chai-determinate-assertion$/, ['chai']],
+  [/^prefer-cypress-should$/, ['cypress']],
+  [/^testing-library-/, ['@testing-library/']],
+  [/^no-interpolation-in-inline-snapshots$/, ['jest', 'vitest']],
+  [/^vitest-mock-at-module-scope$/, ['vitest']],
+];
+const usesAny = (packages) => packages.some((p) => (p.endsWith('/') ? Object.keys(deps).some((d) => d.startsWith(p)) : has(p)));
+const forMissingLibrary = (rule) =>
+  SONAR_LIBRARY_RULES.some(([re, packages]) => re.test(rule.replace(/^sonarjs\//, '')) && !usesAny(packages));
 
 if (want('lint')) {
   const dir = path.join(OUT, 'lint');
@@ -447,10 +514,11 @@ if (want('lint')) {
       ).out,
     );
     const rules = Object.fromEntries(NATIVE_RULES.map((r) => [r, 'warn']));
-    for (const [rule, level] of Object.entries(sonarRecommended ?? {})) {
-      const value = Array.isArray(level) ? level[0] : level;
-      if (value !== 'off' && value !== 0) rules[rule] = 'warn';
-    }
+    const sonarOn = Object.entries(sonarRecommended ?? {})
+      .filter(([, level]) => !['off', 0].includes(Array.isArray(level) ? level[0] : level))
+      .map(([rule]) => rule);
+    const leftOutForStack = sonarOn.filter(forMissingLibrary);
+    for (const rule of sonarOn) if (!leftOutForStack.includes(rule)) rules[rule] = 'warn';
     if (effect) for (const r of ruleNames(effect)) rules[`react-you-might-not-need-an-effect/${r}`] = 'warn';
     if (stack.unitTests.includes('vitest')) Object.assign(rules, { 'vitest/expect-expect': 'warn', 'vitest/no-focused-tests': 'warn' });
     if (stack.unitTests.includes('jest')) Object.assign(rules, { 'jest/expect-expect': 'warn', 'jest/no-focused-tests': 'warn' });
@@ -503,7 +571,7 @@ if (want('lint')) {
       const effectRules = group(/^react-you-might-not-need-an-effect\(/);
       const native = Object.fromEntries(
         NATIVE_RULES.map((r) => {
-          const [plugin, name] = r.split('/');
+          const [plugin, name] = r.includes('/') ? r.split('/') : ['eslint', r];
           return [r, byRule[`${plugin === 'typescript' ? 'typescript-eslint' : `eslint-plugin-${plugin}`}(${name})`] ?? byRule[`${plugin}(${name})`] ?? 0];
         }),
       );
@@ -515,10 +583,19 @@ if (want('lint')) {
           ),
           5,
         );
+      const version = (root, pkg) => readJsonAbs(path.join(root, 'node_modules', pkg, 'package.json'))?.version ?? null;
       result.lint = {
+        // The project's pinned oxlint can be older than the one measured here; the rollout checks the
+        // plugins on it before wiring.
+        oxlint: { probe: version(dir, 'oxlint'), project: version(ROOT, 'oxlint') },
         totalDiagnostics: diagnostics.length,
         native,
-        sonarjs: { total: sumOf(sonarRules), byRule: top(sonarRules, 25), byDir: topFilesFor(/^sonarjs\(/) },
+        sonarjs: {
+          total: sumOf(sonarRules),
+          byRule: top(sonarRules, 25),
+          byDir: topFilesFor(/^sonarjs\(/),
+          leftOutForStack,
+        },
         effects: effect ? { total: sumOf(effectRules), byRule: effectRules, byDir: topFilesFor(/^react-you-might-not-need-an-effect\(/) } : undefined,
         playwright: pw ? group(/^playwright\(/) : undefined,
         tests: group(/^(?:vitest|jest|eslint-plugin-(?:vitest|jest))\(/),
@@ -526,7 +603,7 @@ if (want('lint')) {
         otherCorrectness: top(
           Object.fromEntries(
             Object.entries(byRule).filter(
-              ([r]) => !/^(?:sonarjs|react-you-might-not-need-an-effect|playwright)\(|jsx-a11y\(/.test(r) && !Object.keys(native).some((n) => r.endsWith(`(${n.split('/')[1]})`)),
+              ([r]) => !/^(?:sonarjs|react-you-might-not-need-an-effect|playwright)\(|jsx-a11y\(/.test(r) && !Object.keys(native).some((n) => r.endsWith(`(${n.split('/').pop()})`)),
             ),
           ),
           15,
@@ -715,21 +792,26 @@ if (want('scars')) {
     .filter((line) => FIX_RE.test(line.split(' ').slice(2).join(' ')))
     .slice(0, 80);
   const ruleLines = [];
+  // "Run <cmd> when touching X": a check that runs only when someone remembers it. Its trigger list is
+  // the filter for a CI step.
+  const runWhen = [];
   for (const file of stack.agentFiles.filter((f) => f.endsWith('.md') || f.startsWith('.cursor'))) {
     const lines = (read(file) ?? '').split('\n');
     let fenced = false;
     lines.forEach((line, i) => {
       if (/^\s*```/.test(line)) fenced = !fenced;
       if (fenced) return;
-      if (/\b(?:never|don['’]t|do not|must not|avoid|instead of|not allowed|forbidden)\b/i.test(line)) {
-        ruleLines.push(`${file}:${i + 1}: ${line.trim().slice(0, 220)}`);
+      const label = `${file}:${i + 1}: ${line.trim().slice(0, 220)}`;
+      if (/\b(?:never|don['’]t|do not|must not|avoid|instead of|not allowed|forbidden)\b/i.test(line)) ruleLines.push(label);
+      if (/\brun\b.{0,120}?\b(?:when|whenever|before|after|if)\b.{0,60}?\b(?:touch|chang|edit|writ|modif|merg|add)/i.test(line)) {
+        runWhen.push(label);
       }
     });
   }
   // Lines that name code (backticks, paths, calls) are the ones a linter could check: list them first.
   const codeLike = (line) => /`[^`]+`|\b[\w-]+\/[\w./-]+|\w\(\)/.test(line);
   const sorted = [...ruleLines.filter(codeLike).map((l) => `[code] ${l}`), ...ruleLines.filter((l) => !codeLike(l))];
-  result.scars = { fixCommits, ruleLines: sorted.slice(0, 80), ruleLinesTotal: ruleLines.length };
+  result.scars = { fixCommits, ruleLines: sorted.slice(0, 80), ruleLinesTotal: ruleLines.length, runWhen: runWhen.slice(0, 30) };
 }
 
 // ---------------------------------------------------------------- output
@@ -755,6 +837,7 @@ if (result.stack) {
     `- git hooks: ${s.gitHooks.join(', ') || 'none'}; agent hooks: ${s.agentHooks.join(', ') || 'none'}`,
     `- agent/convention files: ${s.agentFiles.join(', ') || 'none'}`,
     `- CI: ${s.ci.files.join(', ') || 'none'}; checks seen: ${s.ci.checks.join(', ') || 'none'}; scheduled runs: ${s.ci.scheduled ? 'yes' : 'none'}`,
+    `- check scripts CI doesn't run: ${result.scripts.notInCi.map((n) => `${n} (${result.scripts.checks[n].includes('hook') ? 'a hook does' : 'nothing does'})`).join(', ') || 'none'}`,
     `- API: specs ${s.api.specs.join(', ') || 'none'}; tooling ${s.api.tooling.join(', ') || 'none'}; fetch( ${result.signals.fetchCalls}, axios ${result.signals.axiosCalls}`,
     `- boundary tooling: ${s.boundaryTooling.join(', ') || 'none'}; source dirs: ${kv(top(s.topLevelSourceDirs, 15))}`,
     `- repo: since ${result.repo.firstCommit}, ${result.repo.commitsLast90Days} commits (${result.repo.prMergesLast90Days} PR merges) and ${result.repo.authorsLast90Days} authors in 90 days (${result.repo.noCodeCommitsLast90Days} of ${result.repo.nonMergeCommitsLast90Days} non-merge commits touched no code or config), ${result.repo.sourceFiles} source files, ${result.repo.sourceLines} lines`,
@@ -776,8 +859,10 @@ section('TypeScript', result.tsc, (t) => [
   ...(t.note ? [`- note: ${t.note}`] : []),
 ]);
 section('Lint (oxlint + jsPlugins, all warnings)', result.lint, (l) => [
+  `- oxlint: ${l.oxlint.probe} here, ${l.oxlint.project ?? 'none'} installed in the project`,
   `- native: ${kv(l.native)}`,
   `- sonarjs: ${l.sonarjs.total} (${kv(l.sonarjs.byRule)}); by dir: ${kv(l.sonarjs.byDir)}`,
+  `- sonarjs rules left out for libraries the project doesn't use: ${l.sonarjs.leftOutForStack.join(', ') || 'none'}`,
   ...(l.effects ? [`- unnecessary effects: ${l.effects.total} (${kv(l.effects.byRule)}); by dir: ${kv(l.effects.byDir)}`] : []),
   ...(l.playwright ? [`- playwright: ${kv(l.playwright)}`] : []),
   `- test rules: ${kv(l.tests)}`,
@@ -819,6 +904,10 @@ section('Scar candidates', result.scars, (s) => [
   `### Prohibitions in agent/convention files (${s.ruleLinesTotal}, first 80)`,
   '',
   ...s.ruleLines.map((l) => `- ${l}`),
+  '',
+  `### "Run <cmd> when touching X" lines: checks that run only when someone remembers (${s.runWhen.length})`,
+  '',
+  ...s.runWhen.map((l) => `- ${l}`),
 ]);
 if (result.timings) {
   md.push(

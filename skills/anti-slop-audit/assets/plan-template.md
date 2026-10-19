@@ -30,6 +30,8 @@ One line per cell: the headline number and the verdict. Details go in the notes 
 
 <Then a short section per move that needs one: what adopting it would catch here, what it costs, which false positives were removed and how, what was verified by hand, and what would change a skip.>
 
+<In move 3's section, one line: the oxlint the probe ran and the one installed in the project (`lint.oxlint`). When the installed one is older, the lint step runs the plugins on it before wiring.>
+
 ## When checks run
 
 Seconds are from the audit run. Each rollout step wires its check where this table puts it, times it again with the installed tool, and moves it to the next moment if it's now over budget.

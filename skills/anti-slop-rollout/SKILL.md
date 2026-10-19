@@ -21,7 +21,7 @@ Then read `anti-slop/plan.md` for the context the step needs: its move's notes, 
 
 ## 2. Measure again
 
-The plan's numbers are from the audit, and the code has moved since. Rerun the relevant probe section from the sibling skill:
+The plan's numbers are from the audit, and the code has moved since. Counts drift both ways, and an earlier refactor can move the step's starting point: find it by symbol. Rerun the relevant probe section from the sibling skill:
 
 ```bash
 node <skill-dir>/../anti-slop-audit/scripts/probe.mjs --only <sections, comma-separated: tsc,lint,knip,jscpd,doctor, or scars for the rules-file trim>
@@ -53,7 +53,7 @@ Add packages with the project's package manager as devDependencies, at current v
 
 - **Count decides the rule level.** A new rule starts as a warning, unless its count is small enough to fix in this PR; then fix everything and make it an error.
 - **Fix findings properly.** No new `!`, `as any`, disable comments, or reason-less ignore entries to get a check green. A false positive gets a config-level ignore with a comment saying why. If a suppression is truly needed, it carries the reason.
-- **One concern per PR.** If the fixes balloon (dozens of files, or risky logic), land the config with warnings now, and insert cleanup steps into `todo.md` for later PRs. Number them after the step they follow (`3a`, `3b`) instead of renumbering: Log entries and PRs cite step numbers.
+- **One concern per PR.** If the fixes balloon (dozens of files, or risky logic), land the config with warnings now, and insert cleanup steps into `todo.md` for later PRs. Number them after the step they follow (`3a`, `3b`) instead of renumbering: Log entries and PRs cite step numbers. The hooks hold every changed file to zero warnings, so a cleanup for one rule also has to clear the other warning-level rules' hits in the files it touches. When those ride-along fixes balloon, the choice is the team's: fix them in the same PR, exempt that one rule in the hook's config with a reason, or commit with `--no-verify`. Ask, and record the choice in the Log. Never exempt silently.
 - **Scores are diagnostics.** Never change code to move a react-doctor or mutation score.
 
 ## 5. Document
@@ -63,7 +63,8 @@ Add the **Conventions** section from recipes.md to the project's agent rules fil
 ## 6. Verify
 
 - **New commands:** run each one and compare the result with the step's "Done when". Check that the output really comes from the tool: a script name that collides with a package manager built-in runs the built-in and exits 0.
-- **Detectors:** prove each one finds something: plant a violation, see it reported, then remove the plant. If the hook auto-fixes (`--fix`), plant something it can't repair: it rewrites a `@ts-ignore` into `@ts-expect-error`, and the plant vanishes. Plants that hold: a required parameter added to a function with unchanged callers (typecheck), a failing assertion (tests), an unimported file and an unused export (knip), a stale mock, a copied module (jscpd), an effect that adds a listener without cleanup (react-doctor).
+- **Detectors:** prove each one finds something: plant a violation, see it reported, then remove the plant. If the hook auto-fixes (`--fix`), plant something it can't repair: it rewrites a `@ts-ignore` into `@ts-expect-error` or a `type` into an `interface`, and the plant vanishes. Plants that hold: a required parameter added to a function with unchanged callers (typecheck), `items[0].label` (`noUncheckedIndexedAccess`), a `!` (`no-non-null-assertion`), a nested ternary in a changed file (the sonarjs warnings), a failing assertion (tests), an unimported file and an unused export (knip), a stale mock, a copied module (jscpd), an effect that adds a listener without cleanup (react-doctor).
+- **Refactor-heavy cleanups:** prove behavior parity against the base branch with a one-off measurement, not a committed harness. Replay recorded inputs through the old and new function side by side (import both, from a `git worktree` of the base branch and from the branch), or diff a production build against the base branch's with the noise masked: bundle hashes, generated ids, signed URLs, random seeds, build timestamps, nondeterministic ordering. Include one planted change to show the comparison can fail. Record the numbers in the Log; commit the harness only if asked.
 - **Project lint rules:** the fixture test passes, and the rule fires on the code from before the incident's fix (`git show <sha>^:<file>`).
 - **The rules-file trim:** each deleted line is listed in the PR next to the check that enforces it. Where you're not sure the check fires, plant the violation and run the check on it.
 - **The project's existing checks:** run the ones the change can affect (lint, typecheck, unit tests, build). If something fails that you can't fix within this step, report it with the output. Don't hide it.
@@ -82,6 +83,8 @@ Commit in the project's message style (short and imperative if nothing says othe
 - what the check catches (one sentence of the reasoning from the post)
 - the numbers before → after
 - what's deferred to later steps
+- the files that still carry warning-level hits, since the next edit to each must clear them
+- any tool version the step changed, with the old config's count under both versions
 - how to run the check locally
 - every branch-protection change the PR needs (new required jobs, renamed ones, a changes job): those settings live outside the repo
 - the "Verify on this PR" note from step 6, if there is one

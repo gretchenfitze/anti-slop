@@ -33,7 +33,7 @@ The post's test is three conditions: **the code outlives a quarter, someone othe
 
 **A prototype that stays a prototype** fails the test. Say so, recommend at most the API contract (if there's an API) and a CI gate for checks that already exist, then stop.
 
-**A prototype becoming a product** is the opposite case, and the best moment for this audit. Signs: the user says so, or there's a launch, a funding round, or a team joining. Judge the test by where the code is going, not where it's been. The codebase is the smallest it will ever be, agents still write most of it, and every count only grows from here. The plan changes in five ways:
+**A prototype becoming a product** is the opposite case, and the best moment for this audit. Signs: the user says so, or there's a launch, a funding round, or a team joining. Judge the test by where the code is going, not where it's been. The plan changes in five ways:
 
 - **Ask which parts survive.** Ask one question: what gets kept and what gets rewritten. Don't plan cleanup or type fixes in code that's about to be replaced; scope rules to the surviving parts, or put the rewrite first.
 - **Stop new slop before clearing old.** The team still ships at prototype speed, so the agent hook, changed-files warnings, and CI for existing checks come right after step 1.
@@ -65,7 +65,7 @@ Read [references/moves.md](references/moves.md). For each move, decide:
 - Open the largest jscpd logic clones.
 - Read three to five hits of every rule you'd make an error.
 
-Report how many held up. Raw knip on a content-heavy site can say 1,500 unused files when two are dead. A plan built on the raw number loses the team's trust in the first PR.
+Report how many held up. A plan built on the raw number loses the team's trust in the first PR.
 
 Recommend a move because the numbers show it finds something here, or because it prevents a defect class this codebase is exposed to, never because the post lists it.
 
@@ -75,12 +75,12 @@ Section 5 of moves.md explains this: turn bugs the project already shipped into 
 
 ## 5. Decide when each check runs
 
-A check catches slop only where it runs, and it survives only if it doesn't slow people down. Place each adopted check at the cheapest moment that still catches what it's for. Use this repo's numbers, not the sample timings in the rollout recipes:
+A check catches slop only where it runs, and it survives only if it doesn't slow people down. Place each adopted check at the cheapest moment that still catches what it's for. Use this repo's numbers:
 
 - **Seconds here:** the probe's Timings, plus the lint and test runs timed in step 1.
 - **Who writes the code:** the agent files and hooks the probe lists. A Stop hook covers only the agents that run it; name the others in the plan's Assumptions.
 - **How code reaches the default branch:** the probe's PR merges. Zero can also mean rebase merges, so check (`gh pr list --state merged --limit 5`) before concluding the team pushes straight to it. Without PRs, CI runs on push and reports after the fact, so the hooks become the gate.
-- **CI:** the provider, whether anything already runs on a schedule, and how long the slowest job takes now (`gh run list` shows it when `gh` is available). Also the probe's count of recent commits that touched no code or config: when it's a large share, a changes job that skips each check on PRs that can't affect it is worth a plan step (the rollout recipe's CI section).
+- **CI:** the provider, whether anything already runs on a schedule, how long the slowest job takes now (`gh run list` shows it when `gh` is available), and the check scripts nothing in CI runs (`scripts.notInCi`). Also the probe's count of recent commits that touched no code or config: when it's a large share, a changes job that skips each check on PRs that can't affect it is worth a plan step (the rollout recipe's CI section).
 
 Then fill the moments. These budgets are defaults; the team can move them:
 
@@ -97,9 +97,11 @@ A check that's over budget moves to the next moment instead of being dropped. Th
 One step is one PR that a reviewer can read in one sitting. Order them so each step makes the next one cheaper:
 
 - **Step 1** commits the plan files and adds the detectors as plain commands (knip, jscpd, react-doctor where React is present). Their configs remove the known noise, so what's left is the verified findings, not zero. The commands go into the agent rules file. No gates yet. Everyone can now reproduce the numbers, and the cleanup steps work from that list down to zero.
-- **Free gaps next:** a check that exists as a script but not in CI (unit tests are the usual one).
+- **Free gaps next:** a check that exists as a script but not in CI: the probe's `scripts.notInCi`, and its `scars.runWhen` lines ("run `<cmd>` when touching X"), whose trigger list becomes the changes-job filter for the CI step.
 - **Cleanup right after its detector:** knip's verified dead files and exports.
 - **Small counts:** fix everything and make the rule an error in the same PR. **Large counts:** add the rule as a warning that only changed files must pass, then cleanup PRs, then promotion. Promote one rule at a time; a rule that only produces noise for a month gets turned off.
+- **A preset that lands as warnings gets a step that promotes the rest of it,** not only its headline rule: "promote the rest of the preset", naming the rules that stay warnings on purpose. Otherwise every other rule stays a warning that the hooks block in changed files and CI never enforces.
+- **Size a cleanup step by the files it touches, not by one rule's hits.** The hooks hold every changed file to zero warnings, so a cleanup PR for one rule also has to clear every other warning-level rule's hits in those files. Count the files with any warning, and name the ride-along rules in the step. Rules whose fixes are refactors (`cognitive-complexity`) go in a step of their own first, or the step names them as out of scope.
 - **`no-non-null-assertion` before `noUncheckedIndexedAccess`**, so the type fixes can't take the `!` shortcut.
 - **react-doctor errors are mandatory,** where React is present: cleanup steps fix every error, then one step adds the hook and PR CI job blocking on errors. Warnings report without blocking, unless the team answers otherwise in step 8: then a warnings cleanup step (split by rule group if it gets long) and the gate with `--blocking warning` follow.
 - **CI gates last,** once the count is zero or the check fails only on new findings.
@@ -114,7 +116,7 @@ Write two files:
 - `anti-slop/plan.md` from [assets/plan-template.md](assets/plan-template.md): the reasoning, the numbers, and the Log.
 - `anti-slop/todo.md` from [assets/todo-template.md](assets/todo-template.md): the rollout steps only, as a checklist. Anyone can see at a glance what's done and what's next, and the rollout skill goes straight to the first unchecked step.
 
-**The plan must stand alone.** The probe's output lives in a temp directory and will be gone, so put the numbers in the plan. Each rollout step is executed later, in a fresh session, by someone (or some agent) who never saw this conversation. Each step in `todo.md` names the packages, files, rules, and commands, and says how to tell it's done.
+**The plan must stand alone.** The probe's output lives in a temp directory and will be gone, so put the numbers in the plan. Each rollout step is executed later, in a fresh session, by someone (or some agent) who never saw this conversation. Each step in `todo.md` names the packages, files, rules, and commands, and says how to tell it's done. Earlier steps rewrite code, so counts drift and `<file>:<line>` pointers go stale. Write counts as "N at audit", and name starting points by symbol (`parseInvoice`'s status chain), not file and line.
 
 If the files already exist, this is a re-audit: keep checked steps in `todo.md` and the Log in `plan.md`, update the numbers, and mark what changed. Don't renumber steps: Log entries and PRs cite them. Number an inserted step after the one it follows (`3a`, `3b`), and keep a moved step's number. A plan from before the split has its steps under `## Rollout` in `plan.md`: move them to `todo.md`.
 

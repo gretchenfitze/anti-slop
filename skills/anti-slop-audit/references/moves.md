@@ -2,7 +2,7 @@
 
 The moves come from [Yuri Mikhin](https://github.com/mikhin)'s [10 anti-AI slop moves for frontend projects going faster than humans can review](https://evilmartians.com/chronicles/ten-anti-ai-slop-moves-for-frontend-projects-going-faster-than-humans-can-review); "the post" below means that article.
 
-One section per move. Each says what it catches, when it fits, what "done" looks like, how to read the probe's numbers, and what it costs. Moves 1–6 keep extra code from being written, 7–9 find what's already there, 10 makes the rest mandatory. react-doctor is listed last: it isn't one of the post's ten, but every React project should run it in review.
+One section per move. Each says what it catches, when it fits, what "done" looks like, how to read the probe's numbers, and what it costs. react-doctor is listed last: it isn't one of the post's ten, but every React project should run it in review.
 
 Statuses for the plan: **done** (in place and enforced), **partial** (in place but not enforced, or only some of it), **missing**, **n/a** (doesn't fit this project, with the reason).
 
@@ -32,7 +32,7 @@ Contents: [1 Contract](#1-api-contract) · [2 Strict TS](#2-strict-typescript) �
 
 - **`strict` off:** that's the first PR, before anything else in this move. TypeScript 6 turns it on by default, so a config without it is strict unless it sets `"strict": false`.
 - **Near-zero counts** (a fresh project): turn every flag on in one PR. That never gets cheaper.
-- **`noUncheckedIndexedAccess`:** usually worth it. Under ~150 new errors is one PR; above that, one PR per top directory.
+- **`noUncheckedIndexedAccess`:** usually worth it. Under ~150 new errors is one PR; above that, one PR per top directory. Before calling an error a crash, check what the call site guarantees: an array that's never empty there makes it a type fix, not a bug.
 - **`exactOptionalPropertyTypes`:** noisier with React props and framework types. Recommend it only when the count is small or the codebase is mostly domain logic; otherwise **skip for now** and say why.
 - **Framework files:** the probe's `note` says when tsc can't see `.astro`/`.vue`/`.svelte` files. The real count is higher, and the framework's checker (`astro check`, `vue-tsc`, `svelte-check`) must also pass.
 
@@ -57,7 +57,7 @@ A preset someone else wrote goes in as a batch; it needs no incident behind it. 
 
 **How "warnings that only changed files must pass" works**, so plans say it the same way every time: the hooks that lint changed files (pre-commit and the agent hook) treat warnings as errors (`oxlint --deny-warnings`, `eslint --max-warnings=0`, `stylelint --max-warnings 0`). CI's full run prints warnings without failing. Promotion to error is what makes CI enforce a rule everywhere.
 
-**oxlint can't extend an ESLint plugin's preset.** Adopting "sonarjs recommended" through `jsPlugins` means listing the rules. The probe's generated config (`lint.config` in probe.json) already has the list.
+**oxlint can't extend an ESLint plugin's preset.** Adopting "sonarjs recommended" through `jsPlugins` means listing the rules. The probe's generated config (`lint.config` in probe.json) already has the list, without the rules for libraries the project doesn't depend on (`lint.sonarjs.leftOutForStack`). Before counting a sonarjs rule as covered by a native one, check the native rule is on: `no-useless-assignment`, which stands in for `no-dead-store`, isn't in `correctness` (the rollout recipe's section 3 has the pairs).
 
 **Template files:** oxlint reads only the script part of `.astro`/`.vue`/`.svelte`, so anything used only in the template looks unused. The probe already turns off `sonarjs/unused-import` there. If other rules cluster on template files, suspect the same cause before counting them.
 
@@ -69,7 +69,7 @@ A preset someone else wrote goes in as a batch; it needs no incident behind it. 
 
 **Probe:** `stack.boundaryTooling`, `lint.native['import/no-cycle']`, `stack.topLevelSourceDirs`, and any layer rules stated in the agent/convention files.
 
-**Recommend a small set**, 3–5 rules, each traceable to the project's own docs or incidents. The usual ones: one-way dependencies (UI → services, never back); utilities/types/config free of domain code; design system isolated from state and API; mocks out of production; routes map to pages and nothing else. A server-only module (Node APIs, secrets) reachable from client code is a strong candidate wherever the framework mixes server and client code. Every rule's message says where the import should go instead.
+**Recommend a small set**, 3–5 rules, each traceable to the project's own docs or incidents. The usual ones: one-way dependencies (UI → services, never back); utilities/types/config free of domain code; design system isolated from state and API; mocks out of production; routes map to pages and nothing else. A server-only module (Node APIs, secrets) reachable from client code is a strong candidate wherever the framework mixes server and client code. List those modules by walking the import graph up from the direct readers of `process.env`, `child_process`, `fs`, and `crypto`, not by grep alone, which misses modules that reach them through another import. The durable form of the rule is a folder: the plan moves the server-only modules into one and bans the folder, because a name list goes stale with the next util. Every rule's message says where the import should go instead.
 
 **Cost:** the config PR, plus fixing existing violations and import cycles.
 
@@ -82,7 +82,7 @@ A preset someone else wrote goes in as a batch; it needs no incident behind it. 
 **How to mine candidates** from the probe's `scars` section:
 
 1. **Fix and revert commits:** for each plausible one, read the diff (`git show <sha> --stat`, then the relevant hunk). Keep it only if the mistake is visible in syntax: a call, an import, a property, a pattern a linter can match. "Fix typo" or "fix layout on Safari" via CSS values usually isn't.
-2. **Prohibition lines** in AGENTS.md, CLAUDE.md, CONVENTIONS, or Cursor rules ("never X", "don't Y", "use A instead of B"). Each one that's machine-checkable is prose doing a linter's job. The post's point: a rules file is read once per session and loses to a million repositories in the weights.
+2. **Prohibition lines** in AGENTS.md, CLAUDE.md, CONVENTIONS, or Cursor rules ("never X", "don't Y", "use A instead of B"). Each one that's machine-checkable is prose doing a linter's job.
 3. **Repeated review comments**, if the user can point you to them.
 
 **Replay the incident.** Run the proposed rule against the file as it was before the fix (`git show <sha>^:<path> > /tmp/x.ts`, then lint it with the rule in a scratch config). A rule that fires on the original bug and is quiet on today's code is the strongest case a plan can make.
@@ -137,19 +137,19 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 ## 9. Duplicates
 
-**Catches** second implementations: writing a new helper is cheaper for a model than finding the old one, and the copies drift (the post's payroll total showed 23h30m in one place and 0h00m in another).
+**Catches** second implementations: writing a new helper is cheaper for a model than finding the old one, and the copies drift.
 
 **Probe:** `jscpd.logic` (ts/js), `jscpd.components` (tsx/jsx), `jscpd.styles` (css/scss). Judge them separately: repeated JSX and CSS can be intentional, repeated business logic is a maintenance risk. In React code, hooks and handlers live in `.tsx`, so read the largest component clones for logic too. Name the two or three clones worth merging.
 
 **Done looks like:** logic and markup checked as separate jscpd runs, with stricter minimums for logic. The gate fails on *new* clones only (`--baseline-from-ref <base> --fail-on-new-clones`, jscpd 5.4+), so the existing backlog doesn't block anyone. At zero clones, a plain run with `"threshold": 0` is the gate, and it's fast enough for pre-commit. A triage script that groups clones by fragment helps only with a big backlog (dozens of logic clones or more).
 
-**Limit:** plain jscpd finds textual similarity only, and two independent implementations of one rule look different. jscpd 5.4 adds `--similarity` (near-miss functions by AST) and an experimental `--semantic` mode that compares function embeddings with a local 548 MB model. Offer semantic as an occasional report, not a gate, and say it needs a one-time model download.
+**Limit:** plain jscpd finds textual similarity only, and two independent implementations of one rule look different. jscpd 5.4's experimental `--semantic` mode compares function embeddings with a local 548 MB model. Offer semantic as an occasional report, not a gate, and say it needs a one-time model download.
 
 ## 10. CI gate
 
 **A check is mandatory only when CI blocks the branch.** A named step per check (format+lint, typecheck, unit tests, mutation on the PR diff, build); fast checks that share an install run in one job when every check runs on every PR, and with a changes job it's one job per file set, so checks share a job only when their filters match or one sits inside the other. Deploys depend on the jobs.
 
-**Probe:** `stack.ci.checks` against the project's scripts. A check that exists as a script but not in CI (unit tests are the usual one) is a cheap, high-value gap: put it early in the plan.
+**Probe:** `stack.ci.checks` against the project's scripts, and `scripts.notInCi`. A check that exists as a script but not in CI is a cheap, high-value gap: put it early in the plan. So is each `scars.runWhen` line ("run `<cmd>` when touching X"): its trigger list becomes the changes-job filter for the CI step.
 
 **Gates on new checks come last:** a rule or detector gets its CI gate only after its count reaches zero, or after it has a ratchet baseline. Otherwise people work around the check instead of fixing what it finds.
 
@@ -167,8 +167,8 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 - **Build-time scripts:** eval and import-metadata findings are usually intentional. Exclude those paths rather than count them.
 - **Hydration gates in SSR and islands frameworks:** react-doctor's state and hydration rules misfire on the "set state after mount" gate, as the effects plugin does (move 3). If the project documents that pattern, those hits are config, not cleanup.
 
-**Setup:** don't install it. Run `npx -y --min-release-age=7 react-doctor@latest` from a package script, the agent hook, and CI: the newest version at least a week old, so a hijacked release is usually caught and pulled first. Don't use `react-doctor install`, which writes straight into `.git/hooks` and adds a `doctor` script without the release-age gate. The rollout recipe has the commands.
+**Setup:** don't install it. Run `npx -y --min-release-age=7 react-doctor@latest` from a package script, the agent hook, and CI. Don't use `react-doctor install`, which writes straight into `.git/hooks` and adds a `doctor` script without the release-age gate. The rollout recipe has the commands.
 
 **`react-doctor design`** runs the UI design rules a full scan leaves out. It's an opt-in extra: mention it, don't count it in the cleanup.
 
-**Notes for the plan:** run it with `--no-telemetry --no-supply-chain`. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. Name the package script `react-doctor`, not `doctor`: `pnpm doctor` is a pnpm built-in that runs instead and reports success. Its license is a modified MIT that forbids using it as AI training data or reselling it as a hosted service, which is fine for running it in a project. Its score is a diagnostic, not a target, just like the mutation score.
+**Notes for the plan:** run it with `--no-telemetry --no-supply-chain`. Name the package script `react-doctor`, not `doctor`: `pnpm doctor` is a pnpm built-in that runs instead and reports success. Its score is a diagnostic, not a target, just like the mutation score.

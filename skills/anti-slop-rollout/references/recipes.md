@@ -10,9 +10,11 @@ Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conv
 
 - **ESLint (flat config):** add the plugin as a devDependency and spread its config into `eslint.config.*`.
 - **oxlint:** native rules go in `.oxlintrc.json` under their plugin (`typescript/`, `import/`, `react/`, `jsx-a11y/`, `vitest/`, `jest/`). ESLint plugins load through `"jsPlugins": ["eslint-plugin-sonarjs", ...]`, resolved from the config's directory; their rules are named after the plugin without `eslint-plugin-` (`sonarjs/cognitive-complexity`). oxlint can't load a plugin's preset, so list the rules. The audit probe already built that list: `probe.json` → `lint.config` points at a working config with absolute paths. Copy its rules and replace the paths with package names.
+  - **Keep the list in `.oxlintrc.json`.** react-doctor reads only JSON lint configs, so rules loaded through `oxlint.config.ts` drop out of its scan and its findings diverge from the linter's.
+  - **Run the plugins on the project's oxlint before wiring.** The probe runs `oxlint@latest`, and an older pinned oxlint can crash with JS plugins loaded. Lint the whole tree with the plugins on the installed version first. If it crashes, upgrade oxlint and its type-aware companion (`oxlint-tsgolint`) in the same PR, and confirm the old config reports the same count under the new version. Name both versions in the PR and the Log.
 - **Biome** can't load ESLint plugins. Add oxlint next to it for the plugin rules only (`"categories": {}` so it doesn't duplicate Biome's rules). It runs in seconds. Don't migrate the project off Biome.
 
-**Template files.** oxlint and ESLint processors see only the script part of `.astro`, `.vue`, and `.svelte` files, so anything used only in the template looks unused. Turn off `sonarjs/unused-import`, `sonarjs/no-unused-vars`, and `sonarjs/no-dead-store` for those globs in an `overrides` entry, with a comment saying why.
+**Template files.** oxlint and ESLint processors see only the script part of `.astro`, `.vue`, and `.svelte` files, so anything used only in the template looks unused. Turn off `sonarjs/unused-import`, `sonarjs/no-unused-vars`, and `sonarjs/no-dead-store` for those globs in an `overrides` entry, with a comment saying why. oxlint's native `no-unused-vars` and `no-useless-assignment` do see template usages, so an oxlint list that swaps those three for them (section 3) needs no override.
 
 **Changed files only.** New rules land as warnings, and the hook that checks changed files treats warnings as errors (`oxlint --deny-warnings <files>`, `eslint --max-warnings=0 <files>`). New and touched code must pass, while the backlog doesn't block anyone. CI runs the full lint without failing on warnings until the rule is promoted.
 
@@ -54,15 +56,15 @@ Drop the lines about tools the plan doesn't use. If the file already has a comma
 
 ## Running often
 
-Each check runs at the cheapest moment that still catches what it's for. The plan's **When checks run** table decides this for the project, using timings measured there. The table below is the default the audit starts from, with timings from a 400-file Astro + React repo.
+Each check runs at the cheapest moment that still catches what it's for. The plan's **When checks run** table decides this for the project, using timings measured there. The table below is the default the audit starts from.
 
 **When wiring a check,** put it where the plan's table says, then time it with the installed tool. If it's now over that moment's budget, move it to the next moment, and update the table and the Log.
 
 | When | What | How |
 |---|---|---|
 | Every agent turn and commit, on changed files | lint rules (presets, boundaries, project rules) | the agent Stop hook and pre-commit (section 6) |
-| Every agent turn, on changed files | react-doctor `--scope changed --base HEAD` (about 13 s) | the Stop hook only: it's over the pre-commit budget, and its startup alone takes most of it |
-| Every agent turn, whole project but fast | typecheck on a clean baseline (about 5 s), the unit suite, knip at zero (about 3 s with `--cache`), jscpd (under a second as a plain run at zero clones, about 11 s in baseline mode) | the Stop hook, once the check reports new findings only and while the whole hook stays under budget (section 6); a sub-second one can join pre-commit too |
+| Every agent turn, on changed files | react-doctor `--scope changed --base HEAD` | the Stop hook only: its startup alone takes most of the pre-commit budget |
+| Every agent turn, whole project but fast | typecheck on a clean baseline, the unit suite, knip at zero (with `--cache`), jscpd (a plain run at zero clones, or baseline mode) | the Stop hook, once the check reports new findings only and while the whole hook stays under budget (section 6); a sub-second one can join pre-commit too |
 | Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor (a full scan, or on the diff when that doesn't fit; blocks on errors once they're zero), mutation testing on changed files (non-blocking) | CI, a named step per check (section 10) |
 | Weekly | full jscpd report (`dup:top`), full react-doctor (kept after its gate, see react-doctor), full mutation run | the scheduled report below, when the plan has a Scheduled row |
 | Re-audit | ignore lists, rules that caught nothing, new numbers | rerun `anti-slop-audit` when the plan says |
@@ -134,6 +136,9 @@ One flag per PR. Turn on `strict` before the others.
 - Restructure: `for…of` instead of index loops, destructuring with a default, `.find()` plus a guard.
 - Guard and return early: `const first = items[0]; if (!first) return …`.
 - For a `Record` lookup that may miss, use `Map`, an `in` check, or `?? fallback` where a fallback is correct.
+- Give literal tables tuple types (`as const`, or `[number, number, number]`), so a fixed index is known to exist.
+- An index loop that reads two arrays by one index becomes one array of records (`{ label, value }`), so there's no second lookup to guard.
+- Where absence means an upstream bug, throw a named error instead of defaulting: a default hides the bug, and the error names it.
 
 **Never `!`.** Section 3's `no-non-null-assertion` should already be an error, so the shortcut fails lint.
 
@@ -164,17 +169,16 @@ oxlint shape (warnings first; promote later):
     "typescript/no-non-null-assertion": "error",
     "typescript/no-explicit-any": "warn",
     "typescript/consistent-type-definitions": ["error", "type"],
+    "no-useless-assignment": "error",
     "vitest/expect-expect": "error",
     "vitest/no-focused-tests": "error",
+    // sonarjs recommended, listed: a JSON config can't load a preset. Left out: no-unused-vars and
+    // unused-import (oxlint's no-unused-vars), no-dead-store (no-useless-assignment), and the
+    // rules for libraries this project doesn't use (aws-*, Vue, Angular, lodash, …).
     "sonarjs/cognitive-complexity": "warn"
-    // …the rest of sonarjs recommended and the effect rules, as warnings
+    // …the rest of that list and the effect rules, as warnings
   },
   "overrides": [
-    {
-      // oxlint sees only the frontmatter/script block; template usages look unused
-      "files": ["**/*.astro", "**/*.vue", "**/*.svelte"],
-      "rules": { "sonarjs/unused-import": "off", "sonarjs/no-unused-vars": "off", "sonarjs/no-dead-store": "off" }
-    },
     {
       "files": ["e2e/**"],
       "rules": {
@@ -188,7 +192,23 @@ oxlint shape (warnings first; promote later):
 }
 ```
 
-**Promoting** a rule means making it an error once its count is zero, or once it catches a real bug. Delete a rule that produced only noise for a month. Turn off sonarjs rules that misfire on a whole path category (build scripts: `no-os-command-from-path`, `pseudo-random`) with an override and a reason, not one disable at a time.
+**Native-rule equivalents.** Before leaving out a sonarjs rule as covered by oxlint, check that the native rule is on:
+
+| sonarjs | oxlint | On by default |
+|---|---|---|
+| `no-unused-vars`, `unused-import` | `no-unused-vars` | yes, in `correctness` |
+| `no-dead-store` | `no-useless-assignment` | no: turn it on at `error` |
+
+**Trim the list by stack.** Leave out the sonarjs rules for libraries the project doesn't depend on (`aws-*`, Vue, Angular, lodash, …); the probe's `lint.config` already has. Cut rules are left out of the list, never written as `"off"`. One comment above the list names each cut and why, so a re-audit knows what to add back when a stack lands.
+
+**Fix patterns,** one rule per line:
+
+- **`no-non-null-assertion`:** narrow on the value read (read `shift()` once into a const, `!!x?.length`); `flatMap` instead of `filter` then `map` with `!`; keep the found object in state instead of finding it again by key; keep paired reads in one ref. Where absence can only follow an upstream change, throw a named error. In e2e tests, DOM reads inside `evaluate` become locators, which wait and name the missing element, so the test folder needs no override.
+- **`consistent-type-definitions`:** the autofix. With `interface` preferred (the default), where an interface breaks assignability to `Record<string, unknown>`, a mapped type (`Record<'a' | 'b', string>`) passes the rule, so no disable comment.
+- **`no-nested-conditional`:** an early-return helper, a lookup keyed by the discriminant (`Map` or object), an index into an ordered array, or one shared helper when two files wrote the same chain.
+- **`cognitive-complexity`:** move a whole branch into a helper. Code that gets serialized (`page.evaluate`, worker strings) keeps its helpers inside the function, since only the function's own source travels.
+
+**Promoting** a rule means making it an error once its count is zero, or once it catches a real bug. Delete a rule that produced only noise for a month. Turn off sonarjs rules that misfire on a whole path category (build scripts: `no-os-command-from-path`, `pseudo-random`) with an override and a reason, not one disable at a time. The inverse works too: a rule that's noise repo-wide stays out of the list and comes on through an override only where it's signal (`super-linear-regex` where a regex meets request input).
 
 **The effect detector on SSR and islands frameworks:** an effect that sets state after mount, to avoid a hydration mismatch, is often legitimate. If the project relies on that pattern, keep `no-initialize-state` as a warning and document the pattern in the rules file, so the agent knows which hits are by design.
 
@@ -198,15 +218,42 @@ oxlint shape (warnings first; promote later):
 
 ```jsonc
 {
-  "files": ["src/components/**"],
   "rules": {
+    // repo-wide, so it also covers scripts and tests
     "no-restricted-imports": ["error", { "patterns": [{
-      "group": ["**/server/**", "node:*"],
-      "message": "Components ship to the browser: server-only modules (Node APIs, secrets) break the client bundle. Load the value on the server and pass it down as a prop."
+      "group": ["**/routes/**"],
+      "message": "Routes only map URLs to pages, so nothing imports from them. Move the shared code into a module both can import."
     }] }]
-  }
+  },
+  "overrides": [{
+    // everything that ships to the browser; server-only code lives in src/server/
+    "files": ["src/{components,hooks,layouts,utils}/**/*.{ts,tsx}"],
+    "excludeFiles": ["src/**/*.test.{ts,tsx}"],
+    "rules": {
+      "import/no-nodejs-modules": "error",
+      "no-restricted-imports": ["error", { "patterns": [
+        {
+          "regex": "(^|/)server/",
+          "allowTypeImports": true,
+          "message": "Server-only code (Node APIs, secrets) breaks the client bundle (<incident commit>). Compute the value on the server and pass it as a prop, use `import type` for a type, or inline a build constant through the bundler's define. Code that needs server APIs goes in src/server/."
+        },
+        // the top-level pattern again: this entry replaces it instead of merging
+        { "group": ["**/routes/**"], "message": "<the same message>" }
+      ] }]
+    }
+  }]
 }
 ```
+
+- **Build the server-only list by walking the import graph,** not by grep alone: start from the direct readers of `process.env`, `child_process`, `fs`, and `crypto`, then add each module that imports one of them, up to the top.
+- **Prefer a directory to a name list.** Move the server-only modules into one folder (`src/server/`), so the pattern matches the folder and the client glob never includes it. A name list goes stale with the next util.
+- **Scope the override to every module that ships to the browser,** utils included, with tests in `excludeFiles` (`ignores` in ESLint's flat config). A partial scope leaves a plain util as the way around the rule.
+- **`allowTypeImports: true` on each pattern:** `import type` is erased at build time, so it can't pull a module into the bundle. In ESLint, that option lives in `@typescript-eslint/no-restricted-imports`, not the core rule.
+- **Ban Node built-ins with the import plugin's `no-nodejs-modules`** (native in oxlint, `eslint-plugin-import` in ESLint), not a `node:*` group, which misses a bare `fs`, or a hand-written list, which misses built-ins.
+- **An override's `no-restricted-imports` replaces the top-level options instead of merging them.** A repo-wide pattern goes in the top-level `rules`, where it also covers scripts and tests, and every override that sets the rule restates it.
+- **Each message names the incident and the three ways out:** compute the value on the server and pass it as a prop, `import type`, or a build constant through the bundler's `define`.
+- **The rule sees direct imports only.** It can't tell that a new util outside the folder reads `process.env`, so the rules file keeps one line stating that limit and the folder convention for new server-only code.
+- **Verify on the incident and on plants.** Lint the pre-fix file (`git show <sha>^:<path>`) saved under a path the override matches: it must fire. Then plant one violation per pattern and one allowed form of each kind (`import type`, a JSON config import): each plant fires with its message, and each allowed form passes.
 
 **For a layer map,** use `eslint-plugin-boundaries` (v7: `boundaries/elements` in settings, the `boundaries/dependencies` rule with `policies`). It goes in `jsPlugins` for oxlint. Every policy carries a `message` that says where the import should go:
 
@@ -381,7 +428,7 @@ knip doesn't track object properties, so a dead export can be the only reader of
 - `dup`: `jscpd && jscpd --config .jscpd.markup.json`. Full report, never fails.
 - `dup:new`: both configs with `--baseline-from-ref origin/<default-branch> --fail-on-new-clones`. Fails only on clones the branch adds; CI runs this while there's a backlog.
 
-**At zero clones, drop the baseline.** Baseline mode is for a backlog. Once the count is zero, set `"threshold": 0` in each config and run jscpd plain: it fails on any clone and takes well under a second on a mid-size repo, against about 11 s for the baseline compare. That's cheap enough for pre-commit as well as the Stop hook and CI.
+**At zero clones, drop the baseline.** Baseline mode is for a backlog. Once the count is zero, set `"threshold": 0` in each config and run jscpd plain: it fails on any clone and is fast enough for pre-commit as well as the Stop hook and CI.
 - `dup:top`: `jscpd -r json -o reports/jscpd -s && node anti-slop/jscpd-top.mjs`. Groups the backlog by fragment for triage. Copy `assets/scripts/jscpd-top.mjs`.
 
 **The backlog** goes into later plan steps: one PR per worthwhile merge, named in the plan.
@@ -390,7 +437,7 @@ knip doesn't track object properties, so a dead export can be the only reader of
 
 ## 10. CI gate
 
-**A step per check, a job per file set.** Each check is its own named step, so a failure shows in the UI without digging through a combined log. Without a changes job (every check runs on every PR), fast whole-tree checks that share an install run as steps of one job, since each job pays for checkout and install (often a minute or more); a slow check or one with its own setup (build, e2e, mutation) gets its own job. With a changes job (below), the job is what gets skipped, what reports as a required check, and what gets rerun, so it's one job per file set: checks share a job only when their filters match the same files or one filter sits inside the other. The job's `if:` is the wider filter, and the narrower check's step carries its own. Checks with different filters get separate jobs, so each skips on its own and shows its own status. In one job, the `if:` would be the union of their filters, every step would need its own guard, a green job would stop saying which checks ran, and setup only one check needs (type generation, say) would run for all of them; the install saved only matters on PRs that match several filters. The `detectors` job below holds deadcode and dup because jscpd's filter sits inside knip's. Detectors join as they reach their gate. Deploys depend on the jobs (`needs:`).
+**A step per check, a job per file set.** Each check is its own named step, so a failure shows in the UI without digging through a combined log. Without a changes job (every check runs on every PR), fast whole-tree checks that share an install run as steps of one job, since each job pays for checkout and install (often a minute or more); a slow check or one with its own setup (build, e2e, mutation) gets its own job. With a changes job (below), the job is what gets skipped, what reports as a required check, and what gets rerun, so it's one job per file set: checks share a job only when their filters match the same files or one filter sits inside the other. The job's `if:` is the wider filter, and the narrower check's step carries its own. Checks with different filters get separate jobs, so each skips on its own and shows its own status. The `detectors` job below holds deadcode and dup because jscpd's filter sits inside knip's. Detectors join as they reach their gate. Deploys depend on the jobs (`needs:`).
 
 - **Every step after the first needs `!cancelled()` in its `if:`,** even a step that already has a filter: `if: ${{ !cancelled() && needs.changes.outputs.dup == 'true' }}`. A custom `if:` without a status function gets an implicit `success() &&`, so one failed check silently skips the rest.
 - **A check that needs another job's output** runs as a step of that job, not as a new job that checks out again and downloads the artifact: minutes of setup for a compare that takes a second.
@@ -417,7 +464,7 @@ The worked example is GitHub Actions, matching the project's existing setup step
 
 **Path filters** (GitHub `on.pull_request.paths`, GitLab `rules: changes:`) save CI minutes, but they have traps:
 
-- **List everything that changes the result:** the check's own config, any config it extends, `package.json` (the script's flags), and the CI config itself.
+- **List everything that changes the result:** the check's own config, any config it extends, `package.json` (the script's flags), the CI config itself, and any local plugin or rule file the tool loads (`anti-slop/lint-rules/`, a local stylelint plugin).
 - **GitHub: a workflow skipped by `paths:` reports no status,** so as a required check it blocks every PR it skips. Don't put `paths:` on a required check; use a changes job (below).
 - **GitHub's filter syntax has no brace expansion,** so each extension needs its own line (`'**.ts'`, `'**.tsx'`).
 
@@ -447,7 +494,7 @@ jobs:
               // a type-aware linter also reads imported JSON and framework frontmatter
               lint: /\.([cm]?[jt]sx?|json|astro)$/,
               // knip's plugins read the configs they know: anything outside the content folders
-              detectors: /^(?!src\/content\/|public\/)/,
+              detectors: /^(?!docs\/|public\/)/,
             };
             for (const [name, re] of Object.entries(checks)) {
               // no PR payload (a push, a manual run): run everything
@@ -461,7 +508,7 @@ jobs:
 
 - **The changes job must itself be required.** If it fails, every job that needs it is skipped, and skipped satisfies a required check.
 - **Shared inputs run every job:** the manifest, the lockfile, the Node version file, the workflow itself.
-- **Each filter covers what the tool reads indirectly,** not only the files it checks: the type-aware linter's imported JSON and frontmatter, the configs knip's plugins load.
+- **Each filter covers what the tool reads indirectly,** not only the files it checks: the type-aware linter's imported JSON and frontmatter, the configs knip's plugins load, the local plugins and rules a linter loads.
 - **A job running several checks** holds only checks with the same or nested filters: the job takes the wider filter as its `if:`, and the narrower step adds its own with `!cancelled()`. Checks with different filters get separate jobs.
 - **The PR that adds the changes job can't verify the skip:** every push there changes the workflow, a shared input, so everything runs. Say so in the PR description and check on the next content-only PR.
 
@@ -473,9 +520,9 @@ jobs:
 
 Every React project gets it in the review flow, in three parts: set it up as a plain command, clean up the errors, then gate on them.
 
-**Setup** goes in with the other detectors, with no gate yet. **Set it up by hand rather than with `react-doctor install --yes`.** That command also writes a pre-commit block straight into `.git/hooks` (unversioned, and alongside whatever lefthook or husky put there) and adds a `doctor` script that runs `npx react-doctor@latest` with no release-age gate and telemetry on, which `pnpm doctor` shadows anyway. Instead:
+**Setup** goes in with the other detectors, with no gate yet. **Set it up by hand rather than with `react-doctor install --yes`.** That command writes an unversioned pre-commit block into `.git/hooks` and adds a `doctor` script without the release-age gate, which `pnpm doctor` shadows anyway. Instead:
 
-- **Don't install it.** Run it through `npx -y --min-release-age=7 react-doctor@latest` everywhere: the newest version at least a week old, so a hijacked release is usually caught and pulled before it runs here. The gate matters even with a pinned version: npx has no lockfile, so the tool's caret-ranged dependencies resolve fresh on every run. `-y` stops npx from prompting in a terminal; hooks and CI have no TTY and already assume yes.
+- **Don't install it.** Run it through `npx -y --min-release-age=7 react-doctor@latest` everywhere: the newest version at least a week old, so a hijacked release is usually caught and pulled before it runs here. Keep the gate even with a pinned version: npx has no lockfile, so the tool's dependencies resolve fresh on every run.
 - **Check npm where it runs, CI included.** npm older than 11.10 warns that `--min-release-age` is unknown and then ignores it, so the release-age gate is silently off. Check which npm the CI's Node version ships (`npm --version` in a job), and upgrade npm or Node in the job if it's older.
 - **Add a script:** `"react-doctor": "npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain"`. In a single-package repo, add `--project .` to that and to the hook and CI commands below: react-doctor otherwise also scans nested projects in gitignored folders, like worktrees. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. If the team wants that scan, they can drop the flag knowingly.
 
@@ -514,7 +561,7 @@ Every React project gets it in the review flow, in three parts: set it up as a p
 
 ## Trim the rules file
 
-The last step of the plan. A rules file is read once per session and competes for the model's attention, so a line that a check now enforces is a second copy of the rule: the check catches what the line asked for whether or not the model read it, and the two drift apart when the config changes.
+The last step of the plan. A line that a check now enforces is a second copy of the rule: it competes for the model's attention, and the two drift apart when the config changes.
 
 **Inventory what blocks.** A check enforces a rule only where it fails: a tsconfig flag, a lint rule at `error`, a warning the hooks deny on changed files, a boundary policy, a project rule in `anti-slop/lint-rules/`, knip or jscpd at their gate, react-doctor with `--blocking`, the Stop hook, pre-commit, and the CI jobs. The plan's status table and `todo.md` list most of it; the configs settle the rest. A warning that CI only prints isn't enforcement yet: its line stays until the rule is promoted.
 
@@ -522,6 +569,8 @@ The last step of the plan. A rules file is read once per session and competes fo
 
 - **A check fails on exactly what the line forbids** ("never use `any`" with `no-explicit-any` as an error, "no effects for derived state" with the effect rules, "services don't import components" with its boundary policy, "run the tests before you finish" with the Stop hook): delete the line. If it carried a reason the rule's message doesn't, move the reason into the message.
 - **A check covers the mechanical part and the line carries judgment** ("prefer `Map` over an index lookup that may miss" next to `noUncheckedIndexedAccess`): cut it to the judgment half.
+- **The line states a check's limit** ("the rule sees direct imports only, so new server-only code goes in `src/server/`"): keep it. It says what the check can't see, so it isn't a copy of the check.
+- **"Run `<cmd>` when touching X":** the trigger list becomes the changes-job filter of a CI step that runs the command (section 10), and the line goes once that step lands. The audit plans that step from `scars.runWhen`; if the plan has none, add one to `todo.md` rather than wiring it in this step.
 - **No check covers it:** keep it. If it's machine-checkable, it's a scar-rule candidate: add it to the plan's table rather than writing the rule in this step.
 
 The rollout's own Conventions section gets the same test: its "no new `!`, `as any`" clause goes once those rules are errors, while "fix, don't silence" stays, since nothing checks for a new disable comment. The commands list stays as it is: it's how the model runs the checks.
