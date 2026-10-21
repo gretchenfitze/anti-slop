@@ -64,7 +64,7 @@ Or call a skill directly. With the Claude Code plugin, skill commands are namesp
 > /anti-slop:anti-slop-rollout
 ```
 
-The plan lives in `anti-slop/` in your repo: `todo.md` is the step checklist, what's done and what's next, and `plan.md` holds the numbers, the reasoning, and the log. Next to them sit the scripts and project lint rules the rollout adds, so any session or teammate can pick up the next step.
+The plan lives in `anti-slop/` in your repo: `todo.md` is the step checklist, what's done and what's next, and `plan.md` holds the numbers, the reasoning, and the log, so any session or teammate can pick up the next step. The scripts, hook, and project lint rules the rollout adds outlive it, so they go in your project's tooling folder (`scripts/` by default). The last step deletes `anti-slop/`.
 
 ## Requirements
 

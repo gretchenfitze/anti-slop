@@ -77,7 +77,7 @@ A preset someone else wrote goes in as a batch; it needs no incident behind it. 
 
 **What a scar is:** a bug the project already shipped, encoded as a lint rule so it can't ship again. The post's example: a service rounded hours, the formatter rounded again, and 26h15m showed as 26h18m. The rule bans `Math.round`/`toFixed` in what services return, and its message tells that story. The second kind of custom rule is a **behavior filter**: it cancels a default the model brings from a million other repos when the common way is wrong in this codebase.
 
-**The test:** if you can't name the incident behind a rule, don't propose it.
+**The test:** a scar names its incident; a behavior filter names the measured cost of the default it cancels (bytes shipped, renders, a timing on a realistic input). If you can name neither, don't propose it.
 
 **How to mine candidates** from the probe's `scars` section:
 
@@ -87,7 +87,9 @@ A preset someone else wrote goes in as a batch; it needs no incident behind it. 
 
 **Replay the incident.** Run the proposed rule against the file as it was before the fix (`git show <sha>^:<path> > /tmp/x.ts`, then lint it with the rule in a scratch config). A rule that fires on the original bug and is quiet on today's code is the strongest case a plan can make.
 
-**For each candidate, record:** the incident (commit sha or doc line), what the rule matches, the message (what failed, why, what to do instead), and whether it belongs to the linter (JS/TS) or the style linter (CSS). Propose 2–5, best first. The plan lists them; the rollout PR implements the ones the user keeps.
+**Aim at the next incident, not only the last one.** When a tool or a habit produced the bug (a design tool's export, a copied snippet), the candidate covers everything that source produces, not only the files the fix touched.
+
+**For each candidate, record:** the incident (commit sha or doc line), what the rule matches, its count today (labeled an upper bound when it comes from grep rather than the rule), the message (what failed, why, what to do instead), and where it belongs: the linter (JS/TS), the style linter (CSS), or a unit test (files no import reaches: SVGs, images, content data). Propose 2–5, best first. The plan lists them; the rollout PR implements the ones the user keeps.
 
 ## 6. Rules in front of the model
 
@@ -106,11 +108,13 @@ A preset someone else wrote goes in as a batch; it needs no incident behind it. 
 
 **Fits when** there's a unit-test suite worth trusting (`repo.testFiles`), a Stryker runner for it (`mutation.strykerRunnerAvailable`: Vitest, Jest, Mocha, Jasmine, Karma), and pure logic worth mutating.
 
-**Without a dedicated runner** (`node:test`, Bun), Stryker's command runner reruns the whole suite once per mutant, with no per-test coverage. The cost is roughly mutants × suite time. A sub-second suite over a narrow `mutate` scope (one pure-logic module) stays affordable as a local or weekly run; a slow suite doesn't.
+**Without a dedicated runner** (`node:test`, Bun), Stryker's command runner reruns its command once per mutant, with no per-test coverage and no incremental mode. Pointed at the module's sibling tests rather than the suite, it costs mutants × those tests' time, so a narrow `mutate` scope (one pure-logic module) stays affordable.
+
+**The best moment is authoring time.** An agent rule, "after writing tests for a pure module, run mutation on it and kill each survivor or say why it's equivalent", reaches more modules than a CI scope does, since few PRs touch the tested logic.
 
 **Skip or defer when** there are only a handful of tests and no pure logic worth protecting. Say what would change the verdict ("revisit when the suite moves to Vitest or passes N files").
 
-**Rollout notes for the plan:** incremental mode; on PRs mutate only changed files; report surviving mutants as a PR comment; **no failure threshold**. The score is a detector, not a KPI.
+**Rollout notes for the plan:** incremental mode (dedicated runners only); on PRs mutate only changed files; report surviving mutants as a PR comment; **no failure threshold**. The score is a detector, not a KPI.
 
 ## 8. Dead code
 
@@ -149,7 +153,7 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 **A check is mandatory only when CI blocks the branch.** A named step per check (format+lint, typecheck, unit tests, mutation on the PR diff, build); fast checks that share an install run in one job when every check runs on every PR, and with a changes job it's one job per file set, so checks share a job only when their filters match or one sits inside the other. Deploys depend on the jobs.
 
-**Probe:** `stack.ci.checks` against the project's scripts, and `scripts.notInCi`. A check that exists as a script but not in CI is a cheap, high-value gap: put it early in the plan. So is each `scars.runWhen` line ("run `<cmd>` when touching X"): its trigger list becomes the changes-job filter for the CI step.
+**Probe:** `stack.ci.checks` against the project's scripts, and `scripts.notInCi`. A check that exists as a script but not in CI is a cheap, high-value gap: put it early in the plan. So is each `scars.runWhen` line ("run `<cmd>` when touching X"): it becomes a CI step filtered on what the command reads, since the line's trigger list drifts.
 
 **Gates on new checks come last:** a rule or detector gets its CI gate only after its count reaches zero, or after it has a ratchet baseline. Otherwise people work around the check instead of fixing what it finds.
 

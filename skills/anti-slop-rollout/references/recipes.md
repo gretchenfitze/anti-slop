@@ -29,7 +29,12 @@ Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conv
 
 **Package scripts.** Name them after what they do (`deadcode`, `dup`, `mutation`), match the existing naming style (`lint:scripts` vs `lint-scripts`), and call the tool directly, not through `npx`. Don't reuse a package manager built-in: `pnpm doctor`, `pnpm audit`, `pnpm outdated`, `npm doctor` and friends run the built-in instead of your script, exit 0, and look like success.
 
-**Where things go.** Tool configs live at the root, where the tools look for them: `knip.jsonc`, `.jscpd.json`, `stryker.config.json`. Scripts and the project's own lint rules live in `anti-slop/`, next to the plan: `anti-slop/find-dead-code.mjs`, `anti-slop/lint-rules/`. The bundled scripts resolve the repo root as their parent directory, so keep them directly in `anti-slop/`. Report output goes to `reports/` (gitignored).
+**Where things go.**
+
+- **Tool configs** live at the root, where the tools look for them: `knip.jsonc`, `.jscpd.json`, `stryker.config.json`.
+- **Scripts, the Stop hook, and the project's own lint rules** outlive the rollout, so they go in the project's tooling folder: `scripts/`, `tools/`, or `bin/`, whichever it has, or `scripts/` if none. The recipes below write `scripts/`. The bundled scripts resolve the repo root as their parent directory, so the folder sits at the root and they go directly in it: `scripts/find-dead-code.mjs`, `scripts/lint-rules/`.
+- **`anti-slop/`** holds only `plan.md` and `todo.md`. The plan's last step deletes it.
+- **Report output** goes to `reports/` (gitignored).
 
 ## Conventions
 
@@ -44,7 +49,9 @@ Rolled out step by step from `anti-slop/todo.md`; the reasoning is in `anti-slop
 - Lint warnings fail the hooks on changed files and only print in CI, so a new rule starts as a warning that touched code must pass. The Stop hook also runs whole-project checks (typecheck, tests), so it can report a file the change didn't touch.
 - Every ignore entry (knip `ignore`, jscpd `ignore`, lint `overrides`, a disable comment) carries a comment saying why. Review the lists when they grow: each entry is code a detector was told not to look at.
 - A lint message says what failed, why the rule exists, and what to do instead.
-- A project lint rule (`anti-slop/lint-rules/`) names the incident behind it: a commit, PR, or bug. No incident, no rule.
+- A project lint rule (`scripts/lint-rules/`) names the incident behind it (a commit, PR, or bug), or, for a rule that cancels a default the model brings from other codebases, the measured cost of that default. Neither, no rule.
+- After fixing a bug, or a regression a review catches, suggest the lint rule or test that would have caught it (the incident, what it matches, its message), or say why no check can. Write it only when asked.
+- After writing tests for a pure module, run `<mutation command>` on it, and kill each survivor with an assertion or say why it's equivalent.
 - Scores (react-doctor, mutation) are diagnostics, not targets. Don't change code to move a number.
 
 Commands:
@@ -59,6 +66,8 @@ Drop the lines about tools the plan doesn't use. If the file already has a comma
 Each check runs at the cheapest moment that still catches what it's for. The plan's **When checks run** table decides this for the project, using timings measured there. The table below is the default the audit starts from.
 
 **When wiring a check,** put it where the plan's table says, then time it with the installed tool. If it's now over that moment's budget, move it to the next moment, and update the table and the Log.
+
+**Time a CI job on CI,** not locally. Checkout and setup (installing browsers with `--with-deps`, say) can double an e2e run. A job over the PR budget runs non-blocking (`continue-on-error`) and stays out of the required checks.
 
 | When | What | How |
 |---|---|---|
@@ -206,9 +215,16 @@ oxlint shape (warnings first; promote later):
 - **`no-non-null-assertion`:** narrow on the value read (read `shift()` once into a const, `!!x?.length`); `flatMap` instead of `filter` then `map` with `!`; keep the found object in state instead of finding it again by key; keep paired reads in one ref. Where absence can only follow an upstream change, throw a named error. In e2e tests, DOM reads inside `evaluate` become locators, which wait and name the missing element, so the test folder needs no override.
 - **`consistent-type-definitions`:** the autofix. With `interface` preferred (the default), where an interface breaks assignability to `Record<string, unknown>`, a mapped type (`Record<'a' | 'b', string>`) passes the rule, so no disable comment.
 - **`no-nested-conditional`:** an early-return helper, a lookup keyed by the discriminant (`Map` or object), an index into an ordered array, or one shared helper when two files wrote the same chain.
-- **`cognitive-complexity`:** move a whole branch into a helper. Code that gets serialized (`page.evaluate`, worker strings) keeps its helpers inside the function, since only the function's own source travels.
+- **`cognitive-complexity`:** look for a repeated block first: a loop written twice, or a section two functions share, becomes one helper. jscpd may flag that clone only once the split exposes it. Otherwise move a whole branch into a helper. Afterwards, inline each helper that has one caller and doesn't name a concept, wherever the parent stays under the threshold, and rerun jscpd. Code that gets serialized (`page.evaluate`, worker strings) keeps its helpers inside the function, since only the function's own source travels.
+- **`no-nested-template-literals`:** a ternary that picks between two whole templates, or a hoisted const.
+- **Regex rules:** character classes instead of single-character alternatives; no `A-Z` next to `a-z` under the `i` flag; drop an alternative that another one already matches; hoist a token that every alternative shares. Prove the rewrite by running the old and new regex over the project's real inputs and comparing the matches and their positions.
+- **`ban-ts-comment`:** its default allows `@ts-expect-error` with any description, and JS-to-TS migration tools write one themselves ("Remove this comment to see the full error message"), so a count of zero can hide suppressions. Count `@ts-expect-error`, `@ts-ignore`, and `@ts-nocheck` comments directly (the probe's `suppressions`), and treat a generated description as no reason. Each one becomes a real type: an ambient declaration for a third-party global on `window`, a typed lookup map instead of an indexed object literal.
+- **Effect rules:** an effect that copies URL or query params into state becomes a value derived from the URL in render. Browser state (`document.readyState`, a media query) comes from `useSyncExternalStore` with an explicit server snapshot; a store whose server snapshot returns its current client value makes a component that hydrates later render against the client value. When an effect's ordering carried behavior (skipping a scroll for a change the component made itself), record the intent in a ref before the write.
+- **`no-pass-data-to-parent`, `no-pass-live-state-to-parent`:** both read `items.map(…)` inside an effect that syncs a ref as a call to a parent callback. Move the map into `useMemo` so the effect only assigns the ref; no disable comment needed.
 
-**Promoting** a rule means making it an error once its count is zero, or once it catches a real bug. Delete a rule that produced only noise for a month. Turn off sonarjs rules that misfire on a whole path category (build scripts: `no-os-command-from-path`, `pseudo-random`) with an override and a reason, not one disable at a time. The inverse works too: a rule that's noise repo-wide stays out of the list and comes on through an override only where it's signal (`super-linear-regex` where a regex meets request input).
+**Promoting** a rule means making it an error once its count is zero, or once it catches a real bug.
+
+**The end state has no `warn`.** The hooks block warnings in changed files, so a warning is an error that lands later, on whoever next edits the file in an unrelated PR. The preset's last step promotes every rule, `cognitive-complexity` included, once what's left can be split in one PR (about ten functions). If it can't, the plan names a follow-up step for it rather than "re-audit". Delete a rule that produced only noise for a month. Turn off sonarjs rules that misfire on a whole path category (build scripts: `no-os-command-from-path`, `pseudo-random`) with an override and a reason, not one disable at a time. The inverse works too: a rule that's noise repo-wide stays out of the list and comes on through an override only where it's signal (`super-linear-regex` where a regex meets request input).
 
 **The effect detector on SSR and islands frameworks:** an effect that sets state after mount, to avoid a hydration mismatch, is often legitimate. If the project relies on that pattern, keep `no-initialize-state` as a warning and document the pattern in the rules file, so the agent knows which hits are by design.
 
@@ -252,6 +268,7 @@ oxlint shape (warnings first; promote later):
 - **Ban Node built-ins with the import plugin's `no-nodejs-modules`** (native in oxlint, `eslint-plugin-import` in ESLint), not a `node:*` group, which misses a bare `fs`, or a hand-written list, which misses built-ins.
 - **An override's `no-restricted-imports` replaces the top-level options instead of merging them.** A repo-wide pattern goes in the top-level `rules`, where it also covers scripts and tests, and every override that sets the rule restates it.
 - **Each message names the incident and the three ways out:** compute the value on the server and pass it as a prop, `import type`, or a build constant through the bundler's `define`.
+- **`importNames: ["default"]` can't ban only the default import:** it also reports every namespace import (`import * as x` includes `default`) and every side-effect import, in oxlint and ESLint alike. Banning only the default form takes a small project rule (section 5) that reports `ImportDefaultSpecifier`.
 - **The rule sees direct imports only.** It can't tell that a new util outside the folder reads `process.env`, so the rules file keeps one line stating that limit and the folder convention for new server-only code.
 - **Verify on the incident and on plants.** Lint the pre-fix file (`git show <sha>^:<path>`) saved under a path the override matches: it must fire. Then plant one violation per pattern and one allowed form of each kind (`import type`, a JSON config import): each plant fires with its message, and each allowed form passes.
 
@@ -284,27 +301,30 @@ oxlint shape (warnings first; promote later):
 
 ## 5. Scar rules
 
-The template is in `assets/lint-rules/`. Copy it to `anti-slop/lint-rules/`, delete the example rule, and write the project's rules. Each rule has three parts:
+The template is in `assets/lint-rules/`. Copy it to `scripts/lint-rules/`, delete the example rule, and write the project's rules. Each rule has three parts:
 
-- **Matcher:** keep it as narrow as the incident.
-- **Message:** what failed, why (the incident in one sentence, with numbers if there were any), and what to do instead.
-- **`docs.url`:** the PR, issue, or commit.
+- **Matcher:** as narrow as the defect's pattern, and as wide as its source. When a tool or a habit produced the bug (a design tool's export, a copied snippet), check everything that source produces, not only the files the fix touched.
+- **Message:** what failed, why (the incident in one sentence, with numbers if there were any), and what to do instead. A behavior filter has no incident: its message carries the measured cost of the default it cancels (bytes shipped, renders, a timing on a realistic input).
+- **`docs.url`:** the PR, issue, or commit; for a behavior filter, the PR that wrote the convention.
+
+**Count with the real rule before picking the level.** The audit's count comes from a naive scan and is an upper bound. The rule resolves what the scan guessed at, and its count decides warning or error. A hit in dead code gets deleted, not fixed.
 
 **Loading:**
 
-- **oxlint:** `"jsPlugins": ["./anti-slop/lint-rules/index.cjs"]`. Rules are `local/<name>`, from the plugin's `meta.name`.
-- **ESLint:** `import local from './anti-slop/lint-rules/index.cjs'`, then `{ plugins: { local }, rules: { 'local/<name>': 'error' } }`.
+- **oxlint:** `"jsPlugins": ["./scripts/lint-rules/index.cjs"]`. Rules are `local/<name>`, from the plugin's `meta.name`.
+- **ESLint:** `import local from './scripts/lint-rules/index.cjs'`, then `{ plugins: { local }, rules: { 'local/<name>': 'error' } }`.
 
-**Testing:**
+**Testing,** with no fixture files, so lint, knip, jscpd, and tsconfig need no ignore entries for them:
 
-- **oxlint:** `lint-rules.test.mjs` runs the linter over `fixtures/` and checks each rule fires exactly where it should. Add a violating and a clean fixture per rule. Run it with `node --test anti-slop/lint-rules/lint-rules.test.mjs`, and add that command to the unit-test script.
+- **oxlint:** `lint-rules.test.mjs` writes throwaway sources and a minimal config into a temp dir, runs the linter with JSON output, and checks each rule fires exactly where it should. Give each rule a violating and a clean source.
 - **ESLint:** use `RuleTester` from `eslint` with `node:test` (set `RuleTester.describe = describe; RuleTester.it = it`) instead.
-
-**Keep the fixtures out of everything else.** Add `anti-slop/lint-rules/fixtures/**` to the main lint config's ignores, and to knip, jscpd, and tsconfig `exclude` if their globs reach it.
+- **Check the unit-test script runs them:** its glob or command often misses `scripts/`.
 
 **Prove it on the incident.** Run the rule against the code from before the fix (`git show <fix-sha>^:<file>`). It must fire there.
 
-**CSS scars** (a stylelint rule) follow the same idea with `stylelint.createPlugin`. Put them in `anti-slop/lint-rules/stylelint/` and test them with `stylelint`'s Node API.
+**CSS scars** (a stylelint rule) follow the same idea with `stylelint.createPlugin`. Put them in `scripts/lint-rules/stylelint/` and test them by linting inline CSS through stylelint's Node API (`stylelint.lint({ code, config })`).
+
+**Scars in files no import reaches** (SVGs, images, content data) are a unit test that walks those files, not a lint rule. Add the files to the test's CI changes filter and to the Stop hook's trigger: a filter keyed on code skips a change that touches only assets.
 
 ## 6. Agent rules and hooks
 
@@ -313,7 +333,7 @@ The template is in `assets/lint-rules/`. Copy it to `anti-slop/lint-rules/`, del
 **Stop hook** (Claude Code):
 
 - **If the project already has one,** add the new checks to whatever it runs.
-- **If not,** copy `assets/agent-check.sh` to `anti-slop/agent-check.sh`, delete the lines for tools the project doesn't use, swap `oxlint` for `eslint --max-warnings=0` if needed, and wire it in `.claude/settings.json` as its header shows.
+- **If not,** copy `assets/agent-check.sh` to `scripts/agent-check.sh`, delete the lines for tools the project doesn't use, swap `oxlint` for `eslint --max-warnings=0` if needed, and wire it in `.claude/settings.json` as its header shows.
 
 The hook exits 2 so Claude Code sends the findings back and the agent fixes them before it finishes. It stands down on the second block in a row so an unfixable finding can't loop. That's why one block must carry every failure: the script runs its checks in parallel and reports them all. A hook that chains checks with `&&` reports only the first failure, and the stand-down then skips the rest until the next prompt.
 
@@ -329,11 +349,16 @@ The hook exits 2 so Claude Code sends the findings back and the agent fixes them
 
 **Packages:** `@stryker-mutator/core` plus the runner (`@stryker-mutator/vitest-runner` or `@stryker-mutator/jest-runner`).
 
-**No dedicated runner** (`node:test`, Bun): use `"testRunner": "command"` with `"commandRunner": { "command": "<the unit-test script>" }` and `coverageAnalysis: "off"`. Each mutant reruns the whole suite, so keep `mutate` to the pure-logic modules the plan names and run it locally or weekly, not on every PR.
+**No dedicated runner** (`node:test`, Bun): Stryker's command runner, with `coverageAnalysis: "off"`. It reruns its command once per mutant, so keep `mutate` to the pure-logic modules the plan names, and:
+
+- **Run the module's sibling tests, not the suite:** `"commandRunner": { "command": "node --test <the module's test files>" }`. The whole suite costs several times more per mutant, and suite tests that read large asset folders make the sandbox copy them too. In a big repo, `ignorePatterns` keeps the sandbox to source.
+- **Leave `testRunner` at its default:** `command` is built into core. knip's Stryker plugin turns an explicit `"testRunner": "<name>"` into a required `@stryker-mutator/<name>-runner` dependency.
+- **No `incremental`:** the command runner reports one test with no file, so Stryker can't see that a test changed, and keeps reporting survivors that new tests already killed. A narrow scope reruns in seconds anyway.
+- **A wrapper script beats a fixed config:** `mutation <module…>` maps each module to its sibling tests, runs Stryker on that pair, and holds the reasons a JSON config can't. It runs on any tested module, which the Conventions line about mutation needs.
 
 **`stryker.config.json`:**
 
-- `testRunner`, `coverageAnalysis: "perTest"`, `incremental: true` with `incrementalFile: ".stryker-incremental.json"` (commit it, so CI reuses results).
+- `testRunner`, `coverageAnalysis: "perTest"`, `incremental: true` with `incrementalFile: ".stryker-incremental.json"` (commit it, so CI reuses results). Incremental works with dedicated runners only.
 - `mutate`: logic directories only (services, lib, utils, stores), not components, tests, or generated code.
 - Reporters `html`, `clear-text`, `progress`, plus `json` at `reports/mutation/mutation.json`.
 - `thresholds.break: null`: **no failure threshold.**
@@ -343,16 +368,21 @@ The hook exits 2 so Claude Code sends the findings back and the agent fixes them
 **Scripts:**
 
 - `mutation`: `stryker run`.
-- `mutation:changed`: `stryker run --mutate "$(node anti-slop/changed-mutants.mjs origin/<default-branch>)"`. Copy `assets/scripts/changed-mutants.mjs`.
+- `mutation:changed`: `stryker run --mutate "$(node scripts/changed-mutants.mjs origin/<default-branch>)"`. Copy `assets/scripts/changed-mutants.mjs`.
 
 **CI:** a non-blocking job on pull requests only, with full history (GitHub Actions: `continue-on-error: true`, `fetch-depth: 0`):
 
 1. Compute the changed files with `changed-mutants.mjs`.
 2. Run Stryker on them with `--reporters json`.
-3. Build a comment with `anti-slop/mutation-pr-report.mjs` (from `assets/scripts/`).
+3. Build a comment with `scripts/mutation-pr-report.mjs` (from `assets/scripts/`).
 4. Post or update one PR comment marked `<!-- mutation-report -->`, through the forge CLI (`gh pr comment`, `glab mr note`).
 
-The comment lists surviving mutants on changed lines. A survivor is a missing assertion, not a bug. The usual causes are shape asserted instead of content, an unverified snapshot, or a test that checks the mock.
+The comment lists surviving mutants on changed lines.
+
+**Triage survivors.** A survivor is a missing assertion or an equivalent mutant, not a bug in the code. Kill it with an assertion, or log it as equivalent with the reason.
+
+- **Usually equivalent:** a type-narrowing guard whose fallthrough already returns the same value; code reachable only through `NaN`; a boundary mutant outside the values the input can take; a lookup that already misses for the mutated key.
+- **Real gaps cluster in** boundary values, missing vs. zero inputs, `else` branches, and empty-string fallbacks. The usual causes are shape asserted instead of content, an unverified snapshot, or a test that checks the mock.
 
 ## 8. Dead code
 
@@ -396,7 +426,7 @@ knip doesn't track object properties, so a dead export can be the only reader of
 
 **Fix noise in this order.** Unused exports used only by tests disappear once the tests are entries, so fix the test entries first, then re-read the export list.
 
-**Reachability walk:** copy `assets/scripts/find-dead-code.mjs` and `resolve-module.mjs` to `anti-slop/`.
+**Reachability walk:** copy `assets/scripts/find-dead-code.mjs` and `resolve-module.mjs` to `scripts/`.
 
 - It walks imports from knip's `entry` files through knip's `project` files and lists files no entry reaches. It reads aliases from tsconfig `paths`, and skips what `!` negations, `ignore`, `ignoreFiles`, and `.gitignore` exclude.
 - **It only knows explicit entries.** Framework entry points that knip's plugins find on their own (pages, routes, the framework config, content config) must be listed in `entry` for the walk. knip will hint "Remove redundant entry pattern" for them; keep them, and say why in a comment.
@@ -429,7 +459,7 @@ knip doesn't track object properties, so a dead export can be the only reader of
 - `dup:new`: both configs with `--baseline-from-ref origin/<default-branch> --fail-on-new-clones`. Fails only on clones the branch adds; CI runs this while there's a backlog.
 
 **At zero clones, drop the baseline.** Baseline mode is for a backlog. Once the count is zero, set `"threshold": 0` in each config and run jscpd plain: it fails on any clone and is fast enough for pre-commit as well as the Stop hook and CI.
-- `dup:top`: `jscpd -r json -o reports/jscpd -s && node anti-slop/jscpd-top.mjs`. Groups the backlog by fragment for triage. Copy `assets/scripts/jscpd-top.mjs`.
+- `dup:top`: `jscpd -r json -o reports/jscpd -s && node scripts/jscpd-top.mjs`. Groups the backlog by fragment for triage. Copy `assets/scripts/jscpd-top.mjs`.
 
 **The backlog** goes into later plan steps: one PR per worthwhile merge, named in the plan.
 
@@ -464,7 +494,7 @@ The worked example is GitHub Actions, matching the project's existing setup step
 
 **Path filters** (GitHub `on.pull_request.paths`, GitLab `rules: changes:`) save CI minutes, but they have traps:
 
-- **List everything that changes the result:** the check's own config, any config it extends, `package.json` (the script's flags), the CI config itself, and any local plugin or rule file the tool loads (`anti-slop/lint-rules/`, a local stylelint plugin).
+- **List everything that changes the result:** the check's own config, any config it extends, `package.json` (the script's flags), the CI config itself, and any local plugin or rule file the tool loads (`scripts/lint-rules/`, a local stylelint plugin).
 - **GitHub: a workflow skipped by `paths:` reports no status,** so as a required check it blocks every PR it skips. Don't put `paths:` on a required check; use a changes job (below).
 - **GitHub's filter syntax has no brace expansion,** so each extension needs its own line (`'**.ts'`, `'**.tsx'`).
 
@@ -509,8 +539,24 @@ jobs:
 - **The changes job must itself be required.** If it fails, every job that needs it is skipped, and skipped satisfies a required check.
 - **Shared inputs run every job:** the manifest, the lockfile, the Node version file, the workflow itself.
 - **Each filter covers what the tool reads indirectly,** not only the files it checks: the type-aware linter's imported JSON and frontmatter, the configs knip's plugins load, the local plugins and rules a linter loads.
+- **Filter on inputs, not on a list of trigger files.** For e2e, that's the directories the build and the specs read, the spec folder, and the configs. A hand-kept list of the files the specs cover drifts, and every new spec needs an entry. A rules-file line like "run e2e when touching X" is where to start reading, not the filter.
 - **A job running several checks** holds only checks with the same or nested filters: the job takes the wider filter as its `if:`, and the narrower step adds its own with `!cancelled()`. Checks with different filters get separate jobs.
 - **The PR that adds the changes job can't verify the skip:** every push there changes the workflow, a shared input, so everything runs. Say so in the PR description and check on the next content-only PR.
+
+**Sparse checkout when media dominates.** When the probe's `repo.mediaMB` is most of `repo.trackedMB` and no guard reads that media, checkout takes a large share of every job. Leave the media out (a sparse checkout also fetches blobs on demand, `--filter=blob:none`):
+
+```yaml
+      - uses: actions/checkout@<pinned>
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/<media folder>/
+```
+
+- **A job whose tests read some of those files** re-includes them in its own pattern list.
+- **With `persist-credentials: false`, a later `git sparse-checkout add` can't fetch blobs:** list every pattern in the checkout step.
 
 **Cancel superseded runs per branch.** GitHub: a `concurrency` group keyed on `github.ref` (`group: ${{ github.workflow }}-${{ github.ref }}`); a group shared across PRs cancels another PR's pending run, even with `cancel-in-progress: false`. GitLab: `interruptible: true` on the jobs, and the project's auto-cancel setting does the rest per ref.
 
@@ -563,16 +609,23 @@ Every React project gets it in the review flow, in three parts: set it up as a p
 
 The last step of the plan. A line that a check now enforces is a second copy of the rule: it competes for the model's attention, and the two drift apart when the config changes.
 
-**Inventory what blocks.** A check enforces a rule only where it fails: a tsconfig flag, a lint rule at `error`, a warning the hooks deny on changed files, a boundary policy, a project rule in `anti-slop/lint-rules/`, knip or jscpd at their gate, react-doctor with `--blocking`, the Stop hook, pre-commit, and the CI jobs. The plan's status table and `todo.md` list most of it; the configs settle the rest. A warning that CI only prints isn't enforcement yet: its line stays until the rule is promoted.
+**Inventory what blocks.** A check enforces a rule only where it fails: a tsconfig flag, a lint rule at `error`, a warning the hooks deny on changed files, a boundary policy, a project rule in `scripts/lint-rules/`, knip or jscpd at their gate, react-doctor with `--blocking`, the Stop hook, pre-commit, and the CI jobs. The plan's status table and `todo.md` list most of it; the configs settle the rest. A warning that CI only prints isn't enforcement yet: its line stays until the rule is promoted.
 
 **Read every rules file** the probe lists (its `scars` section prints their prohibition lines, code-like ones first), plus the files they import. For each line that tells the model what to do or not do:
 
 - **A check fails on exactly what the line forbids** ("never use `any`" with `no-explicit-any` as an error, "no effects for derived state" with the effect rules, "services don't import components" with its boundary policy, "run the tests before you finish" with the Stop hook): delete the line. If it carried a reason the rule's message doesn't, move the reason into the message.
 - **A check covers the mechanical part and the line carries judgment** ("prefer `Map` over an index lookup that may miss" next to `noUncheckedIndexedAccess`): cut it to the judgment half.
 - **The line states a check's limit** ("the rule sees direct imports only, so new server-only code goes in `src/server/`"): keep it. It says what the check can't see, so it isn't a copy of the check.
-- **"Run `<cmd>` when touching X":** the trigger list becomes the changes-job filter of a CI step that runs the command (section 10), and the line goes once that step lands. The audit plans that step from `scars.runWhen`; if the plan has none, add one to `todo.md` rather than wiring it in this step.
+- **"Run `<cmd>` when touching X":** the line becomes a CI step that runs the command, filtered on what the command reads rather than on the line's trigger list (section 10). The line goes once that step lands. The audit plans that step from `scars.runWhen`; if the plan has none, add one to `todo.md` rather than wiring it in this step.
 - **No check covers it:** keep it. If it's machine-checkable, it's a scar-rule candidate: add it to the plan's table rather than writing the rule in this step.
 
-The rollout's own Conventions section gets the same test: its "no new `!`, `as any`" clause goes once those rules are errors, while "fix, don't silence" stays, since nothing checks for a new disable comment. The commands list stays as it is: it's how the model runs the checks.
+The rollout's own Conventions section gets the same test:
+
+- Its "no new `!`, `as any`" clause goes once those rules are errors.
+- "Fix, don't silence" stays, since nothing checks for a new disable comment. So do the lines about suggesting a check after each bug and running mutation after writing tests: they keep scar rules and tests coming once the plan is gone.
+- Its first line, which points at `anti-slop/`, goes.
+- The commands list stays as it is: it's how the model runs the checks.
 
 **Keep** what no check sees: product context, architecture, where things live, how to run the app, review conventions. The step makes the file shorter, not emptier.
+
+**Then delete `anti-slop/`.** The rollout is done, and git keeps the plan's history.

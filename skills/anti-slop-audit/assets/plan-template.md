@@ -32,9 +32,11 @@ One line per cell: the headline number and the verdict. Details go in the notes 
 
 <In move 3's section, one line: the oxlint the probe ran and the one installed in the project (`lint.oxlint`). When the installed one is older, the lint step runs the plugins on it before wiring.>
 
+<Also in move 3's section: every rule the project's lint config already sets to `warn`, each with the step that promotes it or why it's skipped.>
+
 ## When checks run
 
-Seconds are from the audit run. Each rollout step wires its check where this table puts it, times it again with the installed tool, and moves it to the next moment if it's now over budget.
+Seconds are from the audit run; CI-only jobs (e2e) from recent CI runs. Each rollout step wires its check where this table puts it, times it again with the installed tool, and moves it to the next moment if it's now over budget.
 
 | Moment | Budget | Checks (seconds here) |
 |---|---|---|
@@ -46,9 +48,9 @@ Seconds are from the audit run. Each rollout step wires its check where this tab
 
 ## Scar rule candidates
 
-| Incident | What the rule matches | Message (what failed, why, what instead) |
-|---|---|---|
-| <commit sha or doc line> | | |
+| Incident or measured cost | What the rule matches | Hits now (grep: an upper bound) | Message (what failed, why, what instead) |
+|---|---|---|---|
+| <commit sha, doc line, or the cost a behavior filter cancels> | | | |
 
 ## Skipped
 

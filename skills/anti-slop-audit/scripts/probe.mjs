@@ -297,7 +297,7 @@ const stack = {
 
 // Grep-level signals over source code: cheap context for several moves.
 const signals = { fetchCalls: 0, axiosCalls: 0, useEffect: 0, viMock: 0, jestMock: 0 };
-const suppressions = { lintDisable: 0, tsIgnore: 0, tsExpectError: 0, asAny: 0 };
+const suppressions = { lintDisable: 0, tsIgnore: 0, tsExpectError: 0, tsNocheck: 0, asAny: 0 };
 let loc = 0;
 const texts = new Map();
 for (const file of codeFiles) {
@@ -315,6 +315,7 @@ for (const file of codeFiles) {
   suppressions.lintDisable += count(/(?:eslint|oxlint|biome)-(?:disable|ignore)/g);
   suppressions.tsIgnore += count(/@ts-ignore/g);
   suppressions.tsExpectError += count(/@ts-expect-error/g);
+  suppressions.tsNocheck += count(/@ts-nocheck/g);
   suppressions.asAny += count(/\bas any\b/g);
 }
 
@@ -325,6 +326,17 @@ const commitFiles = gitOut(['log', '--no-merges', '--since=90.days', '--format=%
   .slice(1)
   .map((s) => s.split('\n').filter(Boolean));
 const CHECKED_RE = /\.(?:jsonc?|ya?ml|lockb?|s?css)$/;
+// Tracked bytes vs media: when media no check reads is most of the tree, checkout dominates every CI job.
+const MEDIA_RE = /\.(?:png|jpe?g|gif|webp|avif|ico|bmp|tiff?|psd|mp4|webm|mov|m4v|mp3|wav|ogg|flac|pdf|woff2?|ttf|otf|eot|zip)$/i;
+let trackedBytes = 0;
+const mediaBytes = {};
+for (const entry of gitOut(['ls-tree', '-r', '-l', '-z', 'HEAD']).split('\0')) {
+  const [, size, file] = entry.match(/^\S+ blob \S+\s+(\d+)\t(.+)$/s) ?? [];
+  if (!file) continue;
+  trackedBytes += Number(size);
+  if (MEDIA_RE.test(file)) mediaBytes[dirOf(file)] = (mediaBytes[dirOf(file)] ?? 0) + Number(size);
+}
+const mb = (bytes) => Math.round(bytes / 1e6);
 const repo = {
   firstCommit: gitOut(['log', '--max-parents=0', '--format=%ad', '--date=short']).split('\n').pop() || null,
   commitsLast90Days: Number(gitOut(['rev-list', '--count', '--since=90.days', 'HEAD'])) || 0,
@@ -339,6 +351,9 @@ const repo = {
   testFiles: codeFiles.filter((f) => TEST_RE.test(f) && !isE2e(f)).length,
   e2eFiles: codeFiles.filter(isE2e).length,
   sourceLines: loc,
+  trackedMB: mb(trackedBytes),
+  mediaMB: mb(Object.values(mediaBytes).reduce((a, b) => a + b, 0)),
+  mediaDirsMB: top(Object.fromEntries(Object.entries(mediaBytes).toSorted((a, b) => b[1] - a[1]).map(([d, b]) => [d, mb(b)])), 5),
 };
 
 const STRYKER_RUNNERS = { vitest: true, jest: true, mocha: true, 'node:test': false, bun: false };
@@ -840,7 +855,7 @@ if (result.stack) {
     `- check scripts CI doesn't run: ${result.scripts.notInCi.map((n) => `${n} (${result.scripts.checks[n].includes('hook') ? 'a hook does' : 'nothing does'})`).join(', ') || 'none'}`,
     `- API: specs ${s.api.specs.join(', ') || 'none'}; tooling ${s.api.tooling.join(', ') || 'none'}; fetch( ${result.signals.fetchCalls}, axios ${result.signals.axiosCalls}`,
     `- boundary tooling: ${s.boundaryTooling.join(', ') || 'none'}; source dirs: ${kv(top(s.topLevelSourceDirs, 15))}`,
-    `- repo: since ${result.repo.firstCommit}, ${result.repo.commitsLast90Days} commits (${result.repo.prMergesLast90Days} PR merges) and ${result.repo.authorsLast90Days} authors in 90 days (${result.repo.noCodeCommitsLast90Days} of ${result.repo.nonMergeCommitsLast90Days} non-merge commits touched no code or config), ${result.repo.sourceFiles} source files, ${result.repo.sourceLines} lines`,
+    `- repo: since ${result.repo.firstCommit}, ${result.repo.commitsLast90Days} commits (${result.repo.prMergesLast90Days} PR merges) and ${result.repo.authorsLast90Days} authors in 90 days (${result.repo.noCodeCommitsLast90Days} of ${result.repo.nonMergeCommitsLast90Days} non-merge commits touched no code or config), ${result.repo.sourceFiles} source files, ${result.repo.sourceLines} lines; ${result.repo.trackedMB} MB tracked, ${result.repo.mediaMB} MB of it media (${kv(result.repo.mediaDirsMB)})`,
     `- signals: useEffect ${result.signals.useEffect}, vi.mock ${result.signals.viMock}, jest.mock ${result.signals.jestMock}`,
     `- suppressions: ${kv(result.suppressions)}`,
     `- mutation: runners ${result.mutation.runners.join(', ') || 'none'}, Stryker runner ${result.mutation.strykerRunnerAvailable ? 'available' : 'not available'}`,

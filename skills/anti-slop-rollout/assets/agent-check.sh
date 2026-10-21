@@ -5,7 +5,7 @@
 # and every failure lands in this one block, because the stand-down skips the next stop.
 #
 # Wire it in .claude/settings.json:
-#   { "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/anti-slop/agent-check.sh", "timeout": 180 }] }] } }
+#   { "hooks": { "Stop": [{ "hooks": [{ "type": "command", "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/agent-check.sh", "timeout": 180 }] }] } }
 
 cd "$(dirname "$0")/.." || exit 0
 

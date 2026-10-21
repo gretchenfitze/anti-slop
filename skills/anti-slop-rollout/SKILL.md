@@ -41,9 +41,8 @@ Read [references/recipes.md](references/recipes.md): **Adapting to the stack**, 
 
 `assets/` holds files to copy into the project. They're templates: adapt them to the project's aliases, globs, tools, and naming, and drop the parts that don't apply.
 
-- `assets/scripts/` holds the detector scripts. They go flat into `anti-slop/`, because they resolve the repo root as their parent directory.
-- `assets/lint-rules/` holds the project-rule template. It goes to `anti-slop/lint-rules/`.
-- `assets/agent-check.sh` is the Stop hook. It goes to `anti-slop/agent-check.sh`.
+- `assets/scripts/` holds the detector scripts, `assets/lint-rules/` the project-rule template, and `assets/agent-check.sh` the Stop hook.
+- They outlive the rollout, so they go in the project's tooling folder, not in `anti-slop/` (recipes, **Where things go**). `anti-slop/` holds only the plan and the todo, and the last step deletes it.
 
 Add packages with the project's package manager as devDependencies, at current versions. The plan step names them, and asking for the step is asking for them. If the project's rules require approval for new dependencies anyway, list them and confirm before adding.
 
@@ -65,14 +64,17 @@ Add the **Conventions** section from recipes.md to the project's agent rules fil
 - **New commands:** run each one and compare the result with the step's "Done when". Check that the output really comes from the tool: a script name that collides with a package manager built-in runs the built-in and exits 0.
 - **Detectors:** prove each one finds something: plant a violation, see it reported, then remove the plant. If the hook auto-fixes (`--fix`), plant something it can't repair: it rewrites a `@ts-ignore` into `@ts-expect-error` or a `type` into an `interface`, and the plant vanishes. Plants that hold: a required parameter added to a function with unchanged callers (typecheck), `items[0].label` (`noUncheckedIndexedAccess`), a `!` (`no-non-null-assertion`), a nested ternary in a changed file (the sonarjs warnings), a failing assertion (tests), an unimported file and an unused export (knip), a stale mock, a copied module (jscpd), an effect that adds a listener without cleanup (react-doctor).
 - **Refactor-heavy cleanups:** prove behavior parity against the base branch with a one-off measurement, not a committed harness. Replay recorded inputs through the old and new function side by side (import both, from a `git worktree` of the base branch and from the branch), or diff a production build against the base branch's with the noise masked: bundle hashes, generated ids, signed URLs, random seeds, build timestamps, nondeterministic ordering. Include one planted change to show the comparison can fail. Record the numbers in the Log; commit the harness only if asked.
-- **Project lint rules:** the fixture test passes, and the rule fires on the code from before the incident's fix (`git show <sha>^:<file>`).
+  - **Interaction code** (scroll or pointer hooks): sample DOM state (inline styles, custom properties, classes) at many points through the interaction in both builds, on desktop and mobile viewports, with randomness pinned (`Math.random` stubbed to fixed values).
+  - **A base-branch worktree has no untracked files:** link the main checkout's `.env` into it, or a build that calls an API fails partway.
+- **Project lint rules:** the rule's test passes, and the rule fires on the code from before the incident's fix (`git show <sha>^:<file>`).
+- **A new e2e job:** its first CI run can find races the dev machine hides, because a slower runner reorders work. Assert only on what the test is about. Prove the fix by forcing the race: the old assertion fails with CI's diff, and the new one passes.
 - **The rules-file trim:** each deleted line is listed in the PR next to the check that enforces it. Where you're not sure the check fires, plant the violation and run the check on it.
 - **The project's existing checks:** run the ones the change can affect (lint, typecheck, unit tests, build). If something fails that you can't fix within this step, report it with the output. Don't hide it.
 - **What only a real PR shows:** whether a path filter or a changes job skips the job when it should, whether a required check reports its status, and whether a schedule runs (only after merge, from the default branch). A changes job can't show its skip on the PR that adds it: the workflow is a shared input, so every push runs everything; verify it on the next content-only PR. If the step touches any of these, list them in a short "Verify on this PR" note for the PR description.
 
 ## 7. Update the plan
 
-Check the step off in `todo.md`. Append to the Log in `plan.md`: date, step, branch or PR, numbers before → after, which "Verify on this PR" items stayed unverified, and anything that changed the plan (a rule turned off as noise, a threshold moved, follow-up steps inserted into `todo.md`).
+Check the step off in `todo.md`. Append to the Log in `plan.md`: date, step, branch or PR, numbers before → after, which "Verify on this PR" items stayed unverified, and anything that changed the plan (a rule turned off as noise, a threshold moved, follow-up steps inserted into `todo.md`). The last step deletes `anti-slop/`, so its PR description carries what the Log entry would.
 
 ## 8. Commit and open the PR
 
