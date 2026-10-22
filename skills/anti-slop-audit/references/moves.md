@@ -161,20 +161,16 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 ## react-doctor
 
-**What it is:** React-specific analysis (effects, state, hydration, performance, security) with a score. It scans the whole project or only changed files (`--scope changed --base <ref>`), and its errors are mostly real bugs: missing effect cleanup, leaked observers, unsafe patterns.
+**What it is:** React-specific analysis (effects, state, hydration, performance, security) with a score. It scans the whole project or only changed files, and its errors are mostly real bugs: missing effect cleanup, leaked observers, unsafe patterns.
 
 **Recommend it for every React project** as part of the review flow: a PR CI job that blocks on errors, plus the agent hook. Its severity split sets the rollout:
 
-- **Errors are mandatory, cleanup first.** The plan fixes all of them, then gates the hook and CI with `--blocking error`. Gating earlier hands the backlog to whoever next touches a file with an old error. Before calling one a false positive, check whether cleanup happens another way (an array of observers disconnected together, say). A real false positive gets a per-file entry in react-doctor's config file (`ignore.overrides`) with the reason.
-- **Whether warnings block is the team's choice.** By default they're reported but don't block: fix them in code you're already touching, and a rule with a real cluster of hits can become a cleanup step. The report asks whether they should block too. If so, the plan adds a warnings cleanup step (split by rule group if it gets long), then the gate with `--blocking warning`.
+- **Errors are mandatory, cleanup first.** The plan fixes all of them, then gates the hook and CI with `--blocking error`. Gating earlier hands the backlog to whoever next touches a file with an old error.
+- **Whether warnings block is the team's choice.** By default they're reported but don't block. The report asks; if yes, the plan adds a warnings cleanup step (split by rule group if it gets long), then the gate with `--blocking warning`.
 
 **Probe:** `doctor.*`. `bySeverity.error` sizes the cleanup, so list the errors in the plan; `bySeverity.warning` sizes the cleanup if warnings will block. Before counting, remove what's intentional:
 
 - **Build-time scripts:** eval and import-metadata findings are usually intentional. Exclude those paths rather than count them.
 - **Hydration gates in SSR and islands frameworks:** react-doctor's state and hydration rules misfire on the "set state after mount" gate, as the effects plugin does (move 3). If the project documents that pattern, those hits are config, not cleanup.
 
-**Setup:** don't install it. Run `npx -y --min-release-age=7 react-doctor@latest` from a package script, the agent hook, and CI. Don't use `react-doctor install`, which writes straight into `.git/hooks` and adds a `doctor` script without the release-age gate. The rollout recipe has the commands.
-
-**`react-doctor design`** runs the UI design rules a full scan leaves out. It's an opt-in extra: mention it, don't count it in the cleanup.
-
-**Notes for the plan:** run it with `--no-telemetry --no-supply-chain`. Name the package script `react-doctor`, not `doctor`: `pnpm doctor` is a pnpm built-in that runs instead and reports success. Its score is a diagnostic, not a target, just like the mutation score.
+**Notes for the plan:** the rollout recipe has the setup (never `react-doctor install`; always `npx` with the release-age gate and the privacy flags). `react-doctor design` runs the UI design rules a full scan leaves out: an opt-in extra, not counted in the cleanup.

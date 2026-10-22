@@ -214,21 +214,18 @@ oxlint shape (warnings first; promote later):
 
 **Fix patterns,** one rule per line:
 
-- **`no-non-null-assertion`:** narrow on the value read (read `shift()` once into a const, `!!x?.length`); `flatMap` instead of `filter` then `map` with `!`; keep the found object in state instead of finding it again by key; keep paired reads in one ref. Where absence can only follow an upstream change, throw a named error. In e2e tests, DOM reads inside `evaluate` become locators, which wait and name the missing element, so the test folder needs no override.
-- **`consistent-type-definitions`:** the autofix. With `interface` preferred (the default), where an interface breaks assignability to `Record<string, unknown>`, a mapped type (`Record<'a' | 'b', string>`) passes the rule, so no disable comment.
+- **`no-non-null-assertion`:** narrow on the value read (read `shift()` once into a const, `!!x?.length`); `flatMap` instead of `filter` then `map` with `!`. Where absence can only follow an upstream change, throw a named error: a default hides the bug, the error names it.
+- **`consistent-type-definitions`:** the autofix. Where an `interface` breaks assignability to `Record<string, unknown>` (no index signature), a mapped type (`Record<'a' | 'b', string>`) passes the rule, so no disable comment.
 - **`no-nested-conditional`:** an early-return helper, a lookup keyed by the discriminant (`Map` or object), an index into an ordered array, or one shared helper when two files wrote the same chain.
-- **`cognitive-complexity`:** look for a repeated block first: a loop written twice, or a section two functions share, becomes one helper. jscpd may flag that clone only once the split exposes it. Otherwise move a whole branch into a helper. Afterwards, inline each helper that has one caller and doesn't name a concept, wherever the parent stays under the threshold, and rerun jscpd. Code that gets serialized (`page.evaluate`, worker strings) keeps its helpers inside the function, since only the function's own source travels.
+- **`cognitive-complexity`:** look for a repeated block first: a loop written twice, or a section two functions share, becomes one helper. Otherwise move a whole branch into a helper. Afterwards, inline each helper that has one caller and doesn't name a concept, wherever the parent stays under the threshold, and rerun jscpd.
 - **`no-nested-template-literals`:** a ternary that picks between two whole templates, or a hoisted const.
-- **Regex rules:** character classes instead of single-character alternatives; no `A-Z` next to `a-z` under the `i` flag; drop an alternative that another one already matches; hoist a token that every alternative shares. Prove the rewrite by running the old and new regex over the project's real inputs and comparing the matches and their positions.
-- **`ban-ts-comment`:** its default allows `@ts-expect-error` with any description, and JS-to-TS migration tools write one themselves ("Remove this comment to see the full error message"), so a count of zero can hide suppressions. Count `@ts-expect-error`, `@ts-ignore`, and `@ts-nocheck` comments directly (the probe's `suppressions`), and treat a generated description as no reason. Each one becomes a real type: an ambient declaration for a third-party global on `window`, a typed lookup map instead of an indexed object literal.
-- **Effect rules:** an effect that copies URL or query params into state becomes a value derived from the URL in render. Browser state (`document.readyState`, a media query) comes from `useSyncExternalStore` with an explicit server snapshot; a store whose server snapshot returns its current client value makes a component that hydrates later render against the client value. When an effect's ordering carried behavior (skipping a scroll for a change the component made itself), record the intent in a ref before the write.
-- **`no-pass-data-to-parent`, `no-pass-live-state-to-parent`:** both read `items.map(…)` inside an effect that syncs a ref as a call to a parent callback. Move the map into `useMemo` so the effect only assigns the ref; no disable comment needed.
+- **Regex rules:** character classes instead of single-character alternatives; no `A-Z` next to `a-z` under the `i` flag; drop an alternative another one already matches. Prove a rewrite by running the old and new regex over the project's real inputs and comparing the matches.
+- **`ban-ts-comment`:** its default allows `@ts-expect-error` with any description, and migration tools write one themselves, so count `@ts-expect-error`, `@ts-ignore`, and `@ts-nocheck` directly (the probe's `suppressions`) and treat a generated description as no reason. Each one becomes a real type: an ambient declaration for a global, a typed lookup map instead of an indexed object literal.
+- **Effect rules:** state copied from the URL becomes a value derived in render; browser state (`document.readyState`, a media query) comes from `useSyncExternalStore` with an explicit server snapshot. On SSR and islands frameworks, an effect that sets state after mount to avoid a hydration mismatch is often legitimate: if the project relies on that pattern, keep `no-initialize-state` as a warning and document the pattern in the rules file, so the agent knows which hits are by design.
 
 **Promoting** a rule means making it an error once its count is zero, or once it catches a real bug.
 
-**The end state has no `warn`.** The hooks block warnings in changed files, so a warning is an error that lands later, on whoever next edits the file in an unrelated PR. The preset's last step promotes every rule, `cognitive-complexity` included, once what's left can be split in one PR (about ten functions). If it can't, the plan names a follow-up step for it rather than "re-audit". Delete a rule that produced only noise for a month. Turn off sonarjs rules that misfire on a whole path category (build scripts: `no-os-command-from-path`, `pseudo-random`) with an override and a reason, not one disable at a time. The inverse works too: a rule that's noise repo-wide stays out of the list and comes on through an override only where it's signal (`super-linear-regex` where a regex meets request input).
-
-**The effect detector on SSR and islands frameworks:** an effect that sets state after mount, to avoid a hydration mismatch, is often legitimate. If the project relies on that pattern, keep `no-initialize-state` as a warning and document the pattern in the rules file, so the agent knows which hits are by design.
+**The end state has no `warn`.** The hooks block warnings in changed files, so a warning is an error that lands later, on whoever next edits the file in an unrelated PR. The preset's last step promotes every rule, `cognitive-complexity` included, once what's left can be split in one PR (about ten functions); otherwise the plan names a follow-up step. Delete a rule that produced only noise for a month. A rule that misfires on a whole path category (build scripts: `no-os-command-from-path`, `pseudo-random`) gets an override with a reason, not one disable at a time; a rule that's noise repo-wide but signal in one place stays out of the list and comes on through an override only there (`super-linear-regex` where a regex meets request input).
 
 ## 4. Boundaries
 
@@ -263,13 +260,12 @@ oxlint shape (warnings first; promote later):
 }
 ```
 
-- **Build the server-only list by walking the import graph,** not by grep alone: start from the direct readers of `process.env`, `child_process`, `fs`, and `crypto`, then add each module that imports one of them, up to the top.
-- **Prefer a directory to a name list.** Move the server-only modules into one folder (`src/server/`), so the pattern matches the folder and the client glob never includes it. A name list goes stale with the next util.
+- **The plan step names the server-only modules** (the audit walks the import graph up from the direct readers of `process.env`, `child_process`, `fs`, and `crypto`). Move them into one folder (`src/server/`) first, so the pattern matches the folder: a name list goes stale with the next util.
 - **Scope the override to every module that ships to the browser,** utils included, with tests in `excludeFiles` (`ignores` in ESLint's flat config). A partial scope leaves a plain util as the way around the rule.
 - **`allowTypeImports: true` on each pattern:** `import type` is erased at build time, so it can't pull a module into the bundle. In ESLint, that option lives in `@typescript-eslint/no-restricted-imports`, not the core rule.
-- **Ban Node built-ins with the import plugin's `no-nodejs-modules`** (native in oxlint, `eslint-plugin-import` in ESLint), not a `node:*` group, which misses a bare `fs`, or a hand-written list, which misses built-ins.
-- **An override's `no-restricted-imports` replaces the top-level options instead of merging them.** A repo-wide pattern goes in the top-level `rules`, where it also covers scripts and tests, and every override that sets the rule restates it.
-- **The rule sees direct imports only.** It can't tell that a new util outside the folder reads `process.env`, so the rules file keeps one line stating that limit and the folder convention for new server-only code.
+- **Ban Node built-ins with `import/no-nodejs-modules`** (native in oxlint, `eslint-plugin-import` in ESLint), not a `node:*` group, which misses a bare `fs`, or a hand-written list, which misses built-ins.
+- **An override's `no-restricted-imports` replaces the top-level options instead of merging them,** so every override that sets the rule restates the repo-wide patterns.
+- **The rule sees direct imports only.** It can't tell that a new util outside the folder reads `process.env`, so the rules file keeps one line stating that limit and the folder convention.
 - **Verify on the incident and on plants.** Lint the pre-fix file (`git show <sha>^:<path>`) saved under a path the override matches: it must fire. Then plant one violation per pattern and one allowed form of each kind (`import type`, a JSON config import): each plant fires with its message, and each allowed form passes.
 
 **For a layer map,** use `eslint-plugin-boundaries` (v7: `boundaries/elements` in settings, the `boundaries/dependencies` rule with `policies`). It goes in `jsPlugins` for oxlint. Every policy carries a `message` that says where the import should go:
@@ -521,8 +517,8 @@ jobs:
             // Inputs every check reads: the manifest, the lockfile, the Node version, this workflow.
             const shared = /^(package\.json|pnpm-lock\.yaml|\.nvmrc|\.github\/workflows\/ci\.yml)$/;
             const checks = {
-              // a type-aware linter also reads imported JSON and framework frontmatter
-              lint: /\.([cm]?[jt]sx?|json|astro)$/,
+              // a type-aware linter also reads imported JSON; add the framework's template extension
+              lint: /\.([cm]?[jt]sx?|json)$/,
               // knip's plugins read the configs they know: anything outside the content folders
               detectors: /^(?!docs\/|public\/)/,
             };
@@ -549,74 +545,57 @@ jobs:
 
 Every React project gets it in the review flow, in three parts: set it up as a plain command, clean up the errors, then gate on them.
 
-**Setup** goes in with the other detectors, with no gate yet. **Set it up by hand rather than with `react-doctor install --yes`.** That command writes an unversioned pre-commit block into `.git/hooks` and adds a `doctor` script without the release-age gate, which `pnpm doctor` shadows anyway. Instead:
+**Setup** goes in with the other detectors, no gate yet, and by hand rather than with `react-doctor install`: that command writes an unversioned pre-commit block into `.git/hooks` and adds a `doctor` script without the release-age gate.
 
-- **Don't install it.** Run it through `npx -y --min-release-age=7 react-doctor@latest` everywhere: the newest version at least a week old, so a hijacked release is usually caught and pulled before it runs here. Keep the gate even with a pinned version: npx has no lockfile, so the tool's dependencies resolve fresh on every run.
-- **Check npm where it runs, CI included.** npm older than 11.10 warns that `--min-release-age` is unknown and then ignores it, so the release-age gate is silently off. Check which npm the CI's Node version ships (`npm --version` in a job), and upgrade npm or Node in the job if it's older.
-- **Add a script:** `"react-doctor": "npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain"`. In a single-package repo, add `--project .` to that and to the hook and CI commands below: react-doctor otherwise also scans nested projects in gitignored folders, like worktrees. By default it reports usage, and its supply-chain scan sends the dependency list to Socket.dev. If the team wants that scan, they can drop the flag knowingly.
+- **Don't install it.** Run it everywhere as `npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain`: the newest version at least a week old, so a hijacked release is usually pulled before it runs here. npx has no lockfile, so the gate matters even next to a pinned version. Without the flags it reports usage and sends the dependency list to Socket.dev; the team can drop them knowingly.
+- **Check npm where it runs, CI included.** npm older than 11.10 warns that `--min-release-age` is unknown and then ignores it, so the gate is silently off. Run `npm --version` in a job and upgrade Node or npm there if needed.
+- **Add a `react-doctor` script** with that command (not `doctor`: `pnpm doctor` is a built-in that shadows it). In a single-package repo add `--project .`, here and in the hook and CI commands, or it also scans nested projects in gitignored folders like worktrees.
 
-**Errors are mandatory, and get cleaned up before any gate:**
-
-- **Fix every error,** in one cleanup step or several, split by directory or rule when they don't fit one PR. Gating first would hand the backlog to whoever next touches a file with an old error.
-- **Before calling one a false positive,** check whether cleanup happens another way (an array of observers disconnected together, say). Build-time `eval` or import-metadata findings in scripts are usually intentional: exclude those paths in config, with the reason.
+**Errors are mandatory, and get cleaned up before any gate:** fix every one, in one step or several split by directory or rule. Gating first hands the backlog to whoever next touches a file with an old error. Before calling one a false positive, check whether cleanup happens another way (an array of observers disconnected together, say). Build-time `eval` or import-metadata findings in scripts are usually intentional: exclude those paths in config, with the reason.
 
 **Triage notes:**
 
-- **Suppressions go in react-doctor's config file:** `doctor.config.json`, `.jsonc`, or `.ts` (the docs list the other extensions), or a `reactDoctor` key in `package.json`. JSON configs allow comments. A false positive gets a per-file entry under `ignore.overrides` (`{ "files": [...], "rules": [...] }`), each with a comment saying why. `ignore.rules` drops a rule project-wide and `ignore.files` skips a file entirely: keep those for documented patterns and whole path categories.
-- **Hydration gates in SSR and islands frameworks:** `react-doctor/no-initialize-state` and `react-doctor/rendering-hydration-no-flicker` misfire on the "set state after mount" gate, just like the effects plugin's `no-initialize-state` (section 3). When the project documents that pattern, suppress both project-wide in `ignore.rules`, with the reason.
-- **`no-high-complexity-react-function`** counts only the component's own body (ternaries, `&&`, `||`), not nested callbacks, so extracting a `.map` callback changes nothing. Move a whole branch into a child component or a lowercase helper instead.
-- **It reads the project's lint config.** react-doctor merges the JSON oxlint or ESLint config, so a lint config change can change its findings: add that config to the gate's path filter (section 10). If the config is type-aware, CI runs the framework's type generation (such as `astro sync`) before the scan.
+- **Suppressions go in react-doctor's config file** (`doctor.config.json` or `.jsonc`, or a `reactDoctor` key in `package.json`). A false positive gets a per-file entry under `ignore.overrides` (`{ "files": [...], "rules": [...] }`) with a comment saying why. `ignore.rules` drops a rule project-wide and `ignore.files` skips a file: keep those for documented patterns and whole path categories.
+- **Hydration gates:** `react-doctor/no-initialize-state` and `react-doctor/rendering-hydration-no-flicker` misfire on the "set state after mount" pattern, like the effects plugin (section 3). Where the project documents it, suppress both in `ignore.rules`, with the reason.
+- **`no-high-complexity-react-function`** counts only the component's own body, not nested callbacks, so extracting a `.map` callback changes nothing. Move a whole branch into a child component or a helper.
+- **It reads the project's lint config,** so a lint config change can change its findings: add that config to the gate's path filter (section 10). If the config is type-aware, CI runs the framework's type generation before the scan.
 
-**Gate once errors are zero,** in the hook and CI together. With a clean codebase, `--blocking error` fires only on errors a change introduces.
+**Gate once errors are zero,** in the hook and CI together, with `--blocking error`:
 
-- **Hook, always scoped:** `npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --scope changed --base HEAD --include-untracked --blocking error` in the Stop hook.
-- **CI, a full scan when it fits the PR budget:** `npx -y --min-release-age=7 react-doctor@latest --no-telemetry --no-supply-chain --blocking error`. A scoped scan saves less than it seems, because startup takes a big share of either. A full scan needs no git history, and it catches what a changed-files scope can't, such as a removed suppression or a changed lint config. Only when it doesn't fit, scope it with `--scope changed --base origin/<target branch>` and fetch the full history (section 10).
-- `react-doctor ci install` generates a GitHub Actions workflow that also comments findings on PRs; use it instead if the team wants the comments, and add the release-age gate and flags.
+- **Hook, always scoped:** `--scope changed --base HEAD --include-untracked`, as in `assets/agent-check.sh`.
+- **CI, a full scan when it fits the PR budget.** A scoped scan saves less than it seems, since startup takes a big share of either, and a full scan needs no git history and catches what a changed-files scope can't: a removed suppression, a changed lint config. Only when it doesn't fit, `--scope changed --base origin/<target branch>` with the full history fetched (section 10).
+- `react-doctor ci install` generates a workflow that also comments findings on PRs; use it if the team wants the comments, and add the release-age gate and flags.
 
-**Warnings report by default:** they don't block. Fix them in code a PR already touches. A rule with a real cluster of hits can become its own cleanup step; the rest stay in the scheduled report.
+**Warnings report by default:** they don't block. Fix them in code a PR already touches; a rule with a real cluster of hits can become its own cleanup step. If the team wants warnings to block (the audit asks), they get the errors' path: a cleanup step, split by rule group if it gets long, then `--blocking warning`.
 
-**If the team wants warnings to block too** (the audit asks), they get the errors' path: a warnings cleanup step, split by rule group if it gets long, then the gate with `--blocking warning`. If the error gate is already in, that step only switches the flag.
+**Keep the scheduled full run after the gate.** `@latest` brings new rules with each release; without the scheduled run, a new rule first shows up as a block on some unrelated PR.
 
-**Keep the scheduled full run after the gate.** `@latest` brings new rules with each release. Without the scheduled run, a new rule first shows up as a block on some unrelated PR.
-
-**The score is a diagnostic.** Don't put a number on it in CI.
-
-**`react-doctor design` is opt-in.** It runs the UI design rules that a full scan leaves out, and it's cheap. Triage its first run like any new rule.
-
-- **It exits 0 when it has findings,** even with `--blocking`. A gate checks the `diagnostics.json` it writes to `--output-dir` instead: `npx -y --min-release-age=7 react-doctor@latest design --no-telemetry --output-dir reports/react-doctor-design && jq -e 'length == 0' reports/react-doctor-design/diagnostics.json`.
-- **It scans framework template files** (`.astro`, `.vue`, `.svelte`), so their extensions belong in the hook's file glob and the CI path filter.
+**`react-doctor design` is opt-in:** the UI design rules a full scan leaves out. It exits 0 even with `--blocking`, so a gate has to read the `diagnostics.json` it writes to `--output-dir`.
 
 ## Trim the rules file
 
 The last step of the plan. A line that a check now enforces is a second copy of the rule: it competes for the model's attention, and the two drift apart when the config changes.
 
-**Inventory what blocks.** A check enforces a rule only where it fails: a tsconfig flag, a lint rule at `error`, a warning the hooks deny on changed files, a boundary policy, a project rule in `scripts/lint-rules/`, knip or jscpd at their gate, react-doctor with `--blocking`, the Stop hook, pre-commit, and the CI jobs that branch protection requires. The plan's status table and `todo.md` list most of it; the configs settle the rest. A warning that CI only prints isn't enforcement yet: its line stays until the rule is promoted.
+**Inventory what blocks.** A check enforces a rule only where it fails: a tsconfig flag, a lint rule at `error`, a warning the hooks deny on changed files, a boundary policy, a project rule in `scripts/lint-rules/`, knip or jscpd at their gate, react-doctor with `--blocking`, the Stop hook, pre-commit, and the CI jobs that branch protection requires. A warning CI only prints isn't enforcement: its line stays until the rule is promoted.
 
 **Read the required checks; don't trust the plan.** A job nobody added to branch protection fails red without blocking a merge. Compare the plan's gates with the settings (`gh api repos/{owner}/{repo}/rules/branches/<default>` for rulesets, `gh api repos/{owner}/{repo}/branches/<default>/protection` for classic protection), put any gap in the PR, and make the rules file's "blocks in CI" wording match what really blocks.
 
-**At `error` doesn't prove a rule fires.** Plant a violation for every line you delete. Rules that look like coverage and aren't: a type-aware JS-plugin rule under oxlint (section 3), a heuristic that matches names rather than types, a rule that never sees framework template files. Partial coverage means the line stays, or is rewritten to say where the check stops.
+**At `error` doesn't prove a rule fires.** Plant a violation for every line you delete. Coverage that isn't: a type-aware JS-plugin rule under oxlint (section 3), a heuristic that matches names rather than types, a rule that never sees framework template files. Partial coverage means the line stays, or says where the check stops.
 
 **Read every rules file** the probe lists (its `scars` section prints their prohibition lines, code-like ones first), plus the files they import. For each line that tells the model what to do or not do:
 
-- **A check fails on exactly what the line forbids** ("never use `any`" with `no-explicit-any` as an error, "no effects for derived state" with the effect rules, "services don't import components" with its boundary policy, "run the tests before you finish" with the Stop hook): delete the line. If it carried a reason, move the reason next to the code it explains: the rule's message, a comment in the config, or the header of the test that pins the contract.
-- **An example pair (✅/❌) whose ❌ half a check rejects:** delete only that half. The ✅ half is still the convention.
+- **A check fails on exactly what the line forbids** ("never use `any`" with `no-explicit-any` at `error`, "run the tests before you finish" with the Stop hook): delete the line. If it carried a reason, move the reason next to the code it explains: the rule's message, a comment in the config, or the header of the test that pins the contract.
+- **A good/bad example pair whose bad half a check rejects:** delete only that half. The good half is still the convention.
 - **A check covers the mechanical part and the line carries judgment** ("prefer `Map` over an index lookup that may miss" next to `noUncheckedIndexedAccess`): cut it to the judgment half.
-- **The line says a tool does something automatically** ("import order is auto-fixed"): delete it either way. If the claim is true, the model has nothing to do; if it's false, the line misleads. Check it, and say in the PR which it was. A false one whose convention still matters is a scar-rule candidate.
-- **The line states a check's limit** ("the rule sees direct imports only, so new server-only code goes in `src/server/`"): keep it. It says what the check can't see, so it isn't a copy of the check.
-- **"Run `<cmd>` when touching X":** the trigger list goes once a CI step runs the command on those inputs, blocking or not: the list drifts, and the step's filter on what the command reads is the better source (section 10). An instruction to act on the findings ("then fix or justify each hit") stays while the check doesn't block, since nothing makes anyone read a non-blocking result. The audit plans that step from `scars.runWhen`; if the plan has none, add one to `todo.md` rather than wiring it in this step.
-- **No check covers it:** keep it. If it's machine-checkable, it's a scar-rule candidate: add it to the plan's table rather than writing the rule in this step.
+- **The line claims a tool does something automatically** ("import order is auto-fixed"): delete it either way. If the claim is true, the model has nothing to do; if it's false, the line misleads. Check which, say so in the PR, and treat a false one whose convention still matters as a scar-rule candidate.
+- **The line states a check's limit** ("the rule sees direct imports only, so new server-only code goes in `src/server/`"): keep it. It says what the check can't see.
+- **"Run `<cmd>` when touching X":** the trigger list goes once a CI step runs the command on what it reads (section 10), since the list drifts. "Then fix or justify each hit" stays while that step doesn't block: nothing else makes anyone read a non-blocking result. If no plan step runs the command, add one to `todo.md` rather than wiring it here.
+- **No check covers it:** keep it. If it's machine-checkable, add it to the plan's scar table rather than writing the rule in this step.
 
 **After deleting, grep the other rules files** for pointers to what's gone ("AGENTS.md lists the triggers").
 
-The rollout's own Conventions section gets the same test:
-
-- Its "no new `!`, `as any`" clause goes once those rules are errors.
-- "Fix, don't silence" stays, since nothing checks for a new disable comment. So do the lines about suggesting a check after each bug and running mutation after writing tests: they keep scar rules and tests coming once the plan is gone.
-- Its first line, which points at `anti-slop/`, goes.
-- The commands list stays as it is: it's how the model runs the checks.
+The rollout's own Conventions section gets the same test: its "no new `!`, `as any`" clause goes once those rules are errors, and its first line, which points at `anti-slop/`, goes. "Fix, don't silence", the lines about suggesting a check after each bug and running mutation after writing tests, and the commands list stay: no check sees those.
 
 **Keep** what no check sees: product context, architecture, where things live, how to run the app, review conventions. The step makes the file shorter, not emptier.
 
-**Then delete `anti-slop/`.** The rollout is done, and git keeps the plan's history.
-
-**Open step PRs conflict with this one.** Each step edits `plan.md` and `todo.md`, and this step deletes them, so git reports a modify/delete conflict. Don't hold the trim for a step still under discussion: ship it and treat that step as absent. Both PR descriptions tell the open PR to resolve the conflict by keeping the deletion, and to delete its own rules-file line itself, since the trim didn't.
+**Then delete `anti-slop/`.** Git keeps the plan's history. An open step PR hits a modify/delete conflict on `plan.md` and `todo.md`: don't hold the trim for it. Both PR descriptions say to keep the deletion, and the open PR deletes its own rules-file line itself.

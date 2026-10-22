@@ -37,7 +37,7 @@ const grep = flagValue("--grep")?.toLowerCase() ?? null;
 const top = Number(flagValue("--top") ?? DEFAULT_TOP);
 
 if (statSync(REPORT, { throwIfNoEntry: false }) === undefined) {
-  console.log(`No report at ${path.relative(ROOT, REPORT)}. Run: pnpm dup:top`);
+  console.log(`No report at ${path.relative(ROOT, REPORT)}. Run the dup:top script first.`);
 
   process.exit(0);
 }

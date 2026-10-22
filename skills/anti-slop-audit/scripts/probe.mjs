@@ -92,7 +92,6 @@ const localBin = (name) => {
 };
 
 const CODE_RE = /\.(?:[cm]?[jt]sx?|vue|svelte|astro)$/;
-const TEMPLATE_RE = /\.(?:vue|svelte|astro)$/;
 const TEST_RE = /\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\//;
 const GENERATED_RE = /(?:^|\/)(?:generated|__generated__|dist|build|coverage)\//;
 

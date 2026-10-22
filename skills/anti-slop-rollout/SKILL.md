@@ -13,7 +13,7 @@ One step is one PR because each one needs a human review. These checks exist to 
 
 ## 1. Load the plan
 
-Read `anti-slop/todo.md`. If it doesn't exist, say so and offer to run `anti-slop-audit` first. (A plan from before the split keeps its steps under `## Rollout` in `anti-slop/plan.md`; read them there.)
+Read `anti-slop/todo.md`. If it doesn't exist, say so and offer to run `anti-slop-audit` first.
 
 Take the step the user named, or else the first unchecked one. Check its "Depends on": if an earlier step's PR isn't merged yet, say so. Ask whether to wait or to branch from that PR. The rules-file trim has a third option: ship without it (recipes, **Trim the rules file**).
 
