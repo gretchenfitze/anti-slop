@@ -59,6 +59,8 @@ A preset someone else wrote goes in as a batch; it needs no incident behind it. 
 
 **oxlint can't extend an ESLint plugin's preset.** Adopting "sonarjs recommended" through `jsPlugins` means listing the rules. The probe's generated config (`lint.config` in probe.json) already has the list, without the rules for libraries the project doesn't depend on (`lint.sonarjs.leftOutForStack`). Before counting a sonarjs rule as covered by a native one, check the native rule is on: `no-useless-assignment`, which stands in for `no-dead-store`, isn't in `correctness` (the rollout recipe's section 3 has the pairs).
 
+**Zero hits can mean a rule is inert.** oxlint gives JS plugins no type information, so a rule that needs types may never fire. `lint.typeAware.silent` lists the flagged rules that found nothing here. Don't count one as cheap to make an error, or as coverage the plan provides, until a plant fires it.
+
 **Template files:** oxlint reads only the script part of `.astro`/`.vue`/`.svelte`, so anything used only in the template looks unused. The probe already turns off `sonarjs/unused-import` there. If other rules cluster on template files, suspect the same cause before counting them.
 
 ## 4. Layer boundaries
@@ -151,7 +153,7 @@ Recommend each only with the reason it applies here. Each one the plan keeps nee
 
 ## 10. CI gate
 
-**A check is mandatory only when CI blocks the branch.** A named step per check (format+lint, typecheck, unit tests, mutation on the PR diff, build); fast checks that share an install run in one job when every check runs on every PR, and with a changes job it's one job per file set, so checks share a job only when their filters match or one sits inside the other. Deploys depend on the jobs.
+**A check is mandatory only when CI blocks the branch.** A named step per check (format+lint, typecheck, unit tests, mutation on the PR diff, build), and deploys depend on the jobs.
 
 **Probe:** `stack.ci.checks` against the project's scripts, and `scripts.notInCi`. A check that exists as a script but not in CI is a cheap, high-value gap: put it early in the plan. So is each `scars.runWhen` line ("run `<cmd>` when touching X"): it becomes a CI step filtered on what the command reads, since the line's trigger list drifts.
 

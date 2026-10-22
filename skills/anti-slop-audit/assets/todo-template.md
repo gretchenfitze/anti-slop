@@ -18,5 +18,5 @@ New rules start as warnings that only changed files must pass, get promoted one 
 - [ ] **<last>. Trim the agent rules file**: delete every rule a check now enforces, so the file only says what no check can. Then delete `anti-slop/`.
   - Changes: AGENTS.md (or CLAUDE.md, and the other agents' rules files); `anti-slop/` removed
   - Commands: none
-  - Done when: no line restates a check that blocks; the PR lists each deleted line next to the check that replaced it; `anti-slop/` is gone
+  - Done when: no line restates a check that blocks; the PR lists each deleted line next to the check that replaced it and a plant that check fails on; the required checks match the plan's gates, or the PR names the gap; `anti-slop/` is gone
   - Depends on: the last step that adds or promotes a check
