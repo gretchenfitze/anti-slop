@@ -5,8 +5,9 @@ import path from "node:path";
 import { resolveModule, ROOT } from "./resolve-module.mjs";
 
 const ASSET_RE = /\.(css|scss|svg|png|jpg|json)$/;
-const MOCK_TARGET_RE = /vi\.mock\(\s*["']([^"']+)["']/g;
-const FACTORY_MOCK_RE = /vi\.mock\(\s*["']([^"']+)["']\s*,/g;
+// Vitest's vi.mock and Jest's jest.mock share a shape: group 1 is the runner, group 2 the specifier.
+const MOCK_TARGET_RE = /\b(vi|jest)\.mock\(\s*["']([^"']+)["']/g;
+const FACTORY_MOCK_RE = /\b(vi|jest)\.mock\(\s*["']([^"']+)["']\s*,/g;
 const ARROW_SEARCH_WINDOW = 80;
 const EXPORT_DECLARATION_RE =
   /export\s+(?:declare\s+)?(?:async\s+)?(?:const|function|let|var|class|type|interface|enum)\s+([A-Za-z0-9_$]+)/g;
@@ -14,11 +15,18 @@ const EXPORT_DESTRUCTURED_RE = /export\s+(?:const|let|var)\s*\{([^}]*)\}\s*=/g;
 const EXPORT_LIST_RE = /export\s*(?:type\s*)?\{([^}]*)\}/g;
 const EXPORT_STAR_RE = /export\s*\*\s*from\s*["']([^"']+)["']/g;
 
-const specFiles = globSync(["{src,tests}/**/*.{spec,test}.{ts,tsx}", "vitest.setup.ts"], {
-  cwd: ROOT,
-})
-  .map(String)
-  .toSorted();
+const specFiles = [
+  ...new Set(
+    globSync(
+      [
+        "{src,test,tests}/**/*.{spec,test}.{js,jsx,ts,tsx,mjs,mts}",
+        "{src,test,tests}/**/__tests__/**/*.{js,jsx,ts,tsx}",
+        "{vitest,jest}.setup.{js,ts}",
+      ],
+      { cwd: ROOT },
+    ).map(String),
+  ),
+].toSorted();
 
 const exportsCache = new Map();
 
@@ -128,7 +136,7 @@ const unchecked = [];
 
 const checkTargets = (spec, content) => {
   for (const match of content.matchAll(MOCK_TARGET_RE)) {
-    const specifier = match[1];
+    const [, runner, specifier] = match;
 
     if (ASSET_RE.test(specifier)) continue;
 
@@ -137,6 +145,7 @@ const checkTargets = (spec, content) => {
         file: spec,
         line: lineOf(content, match.index),
         reason: "module does not exist",
+        runner,
         specifier,
       });
     }
@@ -144,7 +153,7 @@ const checkTargets = (spec, content) => {
 };
 
 const checkFactory = (spec, content, match) => {
-  const specifier = match[1];
+  const [, runner, specifier] = match;
   const target = resolveModule(specifier, path.resolve(ROOT, spec));
 
   if (ASSET_RE.test(specifier) || target === false) return;
@@ -153,7 +162,7 @@ const checkFactory = (spec, content, match) => {
   const line = lineOf(content, match.index);
 
   if (body === null || target === null) {
-    unchecked.push({ file: spec, line, specifier, unreadable: body === null });
+    unchecked.push({ file: spec, line, runner, specifier, unreadable: body === null });
 
     return;
   }
@@ -162,7 +171,7 @@ const checkFactory = (spec, content, match) => {
   const missing = keysOf(body).filter((key) => !real.has(key));
 
   if (missing.length > 0) {
-    findings.push({ file: spec, line, reason: `not exported: ${missing.join(", ")}`, specifier });
+    findings.push({ file: spec, line, reason: `not exported: ${missing.join(", ")}`, runner, specifier });
   }
 };
 
@@ -183,8 +192,8 @@ if (unchecked.length > 0) {
       `(${unchecked.length - unreadable.length} in packages, ${unreadable.length} unreadable).\n`,
   );
 
-  for (const { file, line, specifier } of unreadable.toSorted(byPlace)) {
-    console.log(`${file}:${line}  vi.mock("${specifier}") — factory not read`);
+  for (const { file, line, runner, specifier } of unreadable.toSorted(byPlace)) {
+    console.log(`${file}:${line}  ${runner}.mock("${specifier}") — factory not read`);
   }
 
   if (unreadable.length > 0) console.log("");
@@ -195,8 +204,8 @@ if (findings.length === 0) {
 } else {
   console.log(`Dead mocks (${findings.length}):\n`);
 
-  for (const { file, line, reason, specifier } of findings.toSorted(byPlace)) {
-    console.log(`${file}:${line}  vi.mock("${specifier}") — ${reason}`);
+  for (const { file, line, reason, runner, specifier } of findings.toSorted(byPlace)) {
+    console.log(`${file}:${line}  ${runner}.mock("${specifier}") — ${reason}`);
   }
 
   process.exit(1);

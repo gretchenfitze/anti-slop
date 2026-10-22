@@ -249,12 +249,13 @@ const stack = {
   }),
   agentFiles: files
     .filter((f) =>
-      /(?:^|\/)(?:AGENTS|CLAUDE|CONVENTIONS|CONTRIBUTING)\.md$|^\.claude\/rules\/|^\.cursor\/rules\/|^\.cursorrules$|^\.github\/copilot-instructions\.md$/.test(
+      /(?:^|\/)(?:AGENTS|CLAUDE|GEMINI|CONVENTIONS|CONTRIBUTING)\.md$|^\.claude\/rules\/|^\.cursor\/rules\/|^\.cursorrules$|^\.github\/copilot-instructions\.md$/.test(
         f,
       ),
     )
     .slice(0, 30),
-  agentHooks: claudeSettings?.hooks ? Object.keys(claudeSettings.hooks) : [],
+  // Claude Code's hook events, plus Cursor's hooks file; other agents' hooks aren't detected.
+  agentHooks: [...Object.keys(claudeSettings?.hooks ?? {}), ...(exists('.cursor/hooks.json') ? ['cursor'] : [])],
   ci: {
     files: ciFiles,
     scheduled: /\bschedule\b|\bcron\b/i.test(ciText),

@@ -1,6 +1,6 @@
 ---
 name: anti-slop-rollout
-description: 'Carry out the next step of an anti-AI-slop rollout plan (anti-slop/todo.md, with the reasoning in anti-slop/plan.md) as one pull request: add a single check (a strict TypeScript flag, sonarjs or unnecessary-effect or Playwright lint rules, layer boundaries, a custom lint rule from a past bug, an agent Stop hook, Stryker mutation testing, knip and dead-file scripts, jscpd, react-doctor, a CI gate, a scheduled report, and the final trim of the agent rules file), fix or baseline what it finds, document its commands in the agent rules file, verify it, and open the PR. Use when the user says "next anti-slop step", "do step N of the plan", asks which rules in AGENTS.md or CLAUDE.md the linters now cover, or asks to set up knip, jscpd, react-doctor, Stryker, sonarjs, or boundaries the gradual way (warnings first, CI gate last) in a repo that has an anti-slop plan. Needs the plan from anti-slop-audit; without one, run the audit first.'
+description: 'Carry out the next step of an anti-AI-slop rollout plan (anti-slop/todo.md, with the reasoning in anti-slop/plan.md) as one pull request: add a single check in whatever stack the plan records (a strict TypeScript flag, sonarjs, unnecessary-effect, or test lint rules, layer boundaries, a custom lint rule from a past bug, an agent hook, Stryker mutation testing, knip and dead-file scripts, jscpd, react-doctor, a CI gate, a scheduled report, and the final trim of the agent rules file), fix or baseline what it finds, document its commands in the agent rules file, verify it, and open the PR. Use when the user says "next anti-slop step", "do step N of the plan", asks which rules in AGENTS.md or CLAUDE.md the linters now cover, or asks to set up knip, jscpd, react-doctor, Stryker, sonarjs, or boundaries the gradual way (warnings first, CI gate last) in a repo that has an anti-slop plan. Needs the plan from anti-slop-audit; without one, run the audit first.'
 ---
 
 # Roll out one anti-slop step
@@ -17,7 +17,7 @@ Read `anti-slop/todo.md`. If it doesn't exist, say so and offer to run `anti-slo
 
 Take the step the user named, or else the first unchecked one. Check its "Depends on": if an earlier step's PR isn't merged yet, say so. Ask whether to wait or to branch from that PR. The rules-file trim has a third option: ship without it (recipes, **Trim the rules file**).
 
-Then read `anti-slop/plan.md` for the context the step needs: its move's notes, the Assumptions, and the **When checks run** row.
+Then read `anti-slop/plan.md` for the context the step needs: its move's notes, the Assumptions, the **When checks run** row, the **Stack** (which tools this project uses), and the **Variants** (the plan's side of four choices: lint backlog, mutation testing in CI, `exactOptionalPropertyTypes`, react-doctor). A plan without a Stack section: read the stack from `package.json` and the lockfile. A plan without a Variants table predates it and was written for cleanup, report-only, count-gated, and gated.
 
 ## 2. Measure again
 
@@ -41,16 +41,16 @@ Read [references/recipes.md](references/recipes.md): **Adapting to the stack**, 
 
 `assets/` holds files to copy into the project. They're templates: adapt them to the project's aliases, globs, tools, and naming, and drop the parts that don't apply.
 
-- `assets/scripts/` holds the detector scripts and the PR-comment helper for report jobs, `assets/lint-rules/` the project-rule template, and `assets/agent-check.sh` the Stop hook.
+- `assets/scripts/` holds the detector scripts and the PR-comment helper for report jobs, `assets/lint-rules/` the project-rule template, and `assets/agent-check.sh` the agent hook.
 - They outlive the rollout, so they go in the project's tooling folder, not in `anti-slop/` (recipes, **Where things go**). `anti-slop/` holds only the plan and the todo, and the last step deletes it.
 
 Add packages with the project's package manager as devDependencies, at current versions. The plan step names them, and asking for the step is asking for them. If the project's rules require approval for new dependencies anyway, list them and confirm before adding.
 
 **The plan and the recipe can disagree** on a mechanical detail (a file name, a script name, where commands go). The recipe wins unless the plan says why it differs. Note the deviation in the plan's Log.
 
-**Follow the post's rollout discipline:**
+**Follow the rollout discipline, on the plan's side of each variant:**
 
-- **Count decides the rule level.** A new rule starts as a warning, unless its count is small enough to fix in this PR; then fix everything and make it an error.
+- **The rule level.** With the gradual backlog, a new rule lands as a warning that changed files must pass, and old code stays as-is. With cleanup, the count decides: small enough to fix in this PR, fix everything and make it an error; otherwise a warning, with cleanup steps after.
 - **Fix findings properly.** No new `!`, `as any`, disable comments, or reason-less ignore entries to get a check green. A false positive gets a config-level ignore with a comment saying why. If a suppression is truly needed, it carries the reason.
 - **One concern per PR.** If the fixes balloon (dozens of files, or risky logic), land the config with warnings now, and insert cleanup steps into `todo.md` for later PRs. Number them after the step they follow (`3a`, `3b`) instead of renumbering: Log entries and PRs cite step numbers. The hooks hold every changed file to zero warnings, so a cleanup for one rule also has to clear the other warning-level rules' hits in the files it touches. When those ride-along fixes balloon, the choice is the team's: fix them in the same PR, exempt that one rule in the hook's config with a reason, or commit with `--no-verify`. Ask, and record the choice in the Log. Never exempt silently.
 - **Scores are diagnostics.** Never change code to move a react-doctor or mutation score.
@@ -80,7 +80,7 @@ Commit in the project's message style (short and imperative if nothing says othe
 
 **The PR description says:**
 
-- what the check catches (one sentence of the reasoning from the post)
+- what the check catches (one sentence, from its move's notes in the plan)
 - the numbers before → after
 - what's deferred to later steps
 - the files that still carry warning-level hits, since the next edit to each must clear them

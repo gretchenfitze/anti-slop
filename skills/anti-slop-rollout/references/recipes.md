@@ -1,6 +1,6 @@
 # Recipes
 
-Read **Adapting to the stack**, **Conventions**, and **Running often**, then only the section for the step you're doing. Package versions below are the ones verified when this was written. Add the current versions with the project's package manager, and check a tool's `--help` when a flag here doesn't match.
+Read **Adapting to the stack**, **Conventions**, and **Running often**, then only the section for the step you're doing. Pick each tool from the plan's **Stack**, and follow its **Variants** where a section gives two options. Package versions below are the ones verified when this was written. Add the current versions with the project's package manager, and check a tool's `--help` when a flag here doesn't match.
 
 Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conventions) · [Running often](#running-often) · [1 Contract](#1-api-contract) · [2 Strict TS](#2-strict-typescript) · [3 Linter rules](#3-linter-rules) · [4 Boundaries](#4-boundaries) · [5 Scar rules](#5-scar-rules) · [6 Agent rules and hooks](#6-agent-rules-and-hooks) · [7 Mutation testing](#7-mutation-testing) · [8 Dead code](#8-dead-code) · [9 Duplicates](#9-duplicates) · [10 CI gate](#10-ci-gate) · [react-doctor](#react-doctor) · [Trim the rules file](#trim-the-rules-file)
 
@@ -13,6 +13,8 @@ Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conv
   - **Keep the list in `.oxlintrc.json`.** react-doctor reads only JSON lint configs, so rules loaded through `oxlint.config.ts` drop out of its scan and its findings diverge from the linter's.
   - **Run the plugins on the project's oxlint before wiring.** The probe runs `oxlint@latest`, and an older pinned oxlint can crash with JS plugins loaded. Lint the whole tree with the plugins on the installed version first. If it crashes, upgrade oxlint and its type-aware companion (`oxlint-tsgolint`) in the same PR, and confirm the old config reports the same count under the new version. Name both versions in the PR and the Log.
 - **Biome** can't load ESLint plugins. Add oxlint next to it for the plugin rules only (`"categories": {}` so it doesn't duplicate Biome's rules). It runs in seconds. Don't migrate the project off Biome.
+
+**Package manager.** Commands below write `<run> <script>`: the project's script runner (`npm run`, `pnpm`, `yarn`, or `bun run`), from the plan's Stack. CI setup steps copy the ones the project's other jobs use. In a monorepo, a check's config goes where its tool runs: per package, or at the root with workspaces (knip's `workspaces`, an ESLint config per package).
 
 **Template files.** oxlint and ESLint processors see only the script part of `.astro`, `.vue`, and `.svelte` files, so anything used only in the template looks unused. Turn off `sonarjs/unused-import`, `sonarjs/no-unused-vars`, and `sonarjs/no-dead-store` for those globs in an `overrides` entry, with a comment saying why. oxlint's native `no-unused-vars` and `no-useless-assignment` do see template usages, so an oxlint list that swaps those three for them (section 3) needs no override.
 
@@ -32,7 +34,7 @@ Contents: [Adapting to the stack](#adapting-to-the-stack) · [Conventions](#conv
 **Where things go.**
 
 - **Tool configs** live at the root, where the tools look for them: `knip.jsonc`, `.jscpd.json`, `stryker.config.json`.
-- **Scripts, the Stop hook, and the project's own lint rules** outlive the rollout, so they go in the project's tooling folder: `scripts/`, `tools/`, or `bin/`, whichever it has, or `scripts/` if none. The recipes below write `scripts/`. The bundled scripts resolve the repo root as their parent directory, so the folder sits at the root and they go directly in it: `scripts/find-dead-code.mjs`, `scripts/lint-rules/`.
+- **Scripts, the agent hook, and the project's own lint rules** outlive the rollout, so they go in the project's tooling folder: `scripts/`, `tools/`, or `bin/`, whichever it has, or `scripts/` if none. The recipes below write `scripts/`. The bundled scripts resolve the repo root as their parent directory, so the folder sits at the root and they go directly in it: `scripts/find-dead-code.mjs`, `scripts/lint-rules/`.
 - **`anti-slop/`** holds only `plan.md` and `todo.md`. The plan's last step deletes it.
 - **Report output** goes to `reports/` (gitignored).
 
@@ -46,7 +48,7 @@ Add a section to the project's agent rules file (AGENTS.md, or CLAUDE.md if that
 Rolled out step by step from `anti-slop/todo.md`; the reasoning is in `anti-slop/plan.md`.
 
 - Fix what a check finds; don't silence it. No new `!`, `as any`, `@ts-expect-error`, or disable comments to get a check green.
-- Lint warnings fail the hooks on changed files and only print in CI, so a new rule starts as a warning that touched code must pass. The Stop hook also runs whole-project checks (typecheck, tests), so it can report a file the change didn't touch.
+- Lint warnings fail the hooks on changed files and only print in CI, so a new rule starts as a warning that touched code must pass. The agent hook also runs whole-project checks (typecheck, tests), so it can report a file the change didn't touch.
 - Every ignore entry (knip `ignore`, jscpd `ignore`, lint `overrides`, a disable comment) carries a comment saying why. Review the lists when they grow: each entry is code a detector was told not to look at.
 - A lint message says what failed, why the rule exists, and what to do instead.
 - A project lint rule (`scripts/lint-rules/`) names the incident behind it (a commit, PR, or bug), or, for a rule that cancels a default the model brings from other codebases, the measured cost of that default. Neither, no rule.
@@ -71,10 +73,10 @@ Each check runs at the cheapest moment that still catches what it's for. The pla
 
 | When | What | How |
 |---|---|---|
-| Every agent turn and commit, on changed files | lint rules (presets, boundaries, project rules) | the agent Stop hook and pre-commit (section 6) |
-| Every agent turn, on changed files | react-doctor `--scope changed --base HEAD` | the Stop hook only: its startup alone takes most of the pre-commit budget |
-| Every agent turn, whole project but fast | typecheck on a clean baseline, the unit suite, knip at zero (with `--cache`), jscpd (a plain run at zero clones, or baseline mode) | the Stop hook, once the check reports new findings only and while the whole hook stays under budget (section 6); a sub-second one can join pre-commit too |
-| Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor (a full scan, or on the diff when that doesn't fit; blocks on errors once they're zero), mutation testing on changed files (non-blocking) | CI, a named step per check (section 10) |
+| Every agent turn and commit, on changed files | lint rules (presets, boundaries, project rules) | the agent hook and pre-commit (section 6) |
+| Every agent turn, on changed files | react-doctor `--scope changed --base HEAD`, when the plan gates it | the agent hook only: its startup alone takes most of the pre-commit budget |
+| Every agent turn, whole project but fast | typecheck on a clean baseline, the unit suite, knip at zero (with `--cache`), jscpd (a plain run at zero clones, or baseline mode) | the agent hook, once the check reports new findings only and while the whole hook stays under budget (section 6); a sub-second one can join pre-commit too |
+| Every PR | typecheck, unit tests, knip, jscpd new clones vs the base branch, react-doctor when the plan gates it (a full scan, or on the diff when that doesn't fit; blocks on errors once they're zero), mutation testing on changed files (required or report-only, per the plan's Variants) | CI, a named step per check (section 10) |
 | Weekly | full jscpd report (`dup:top`), full react-doctor (kept after its gate, see react-doctor), full mutation run | the scheduled report below, when the plan has a Scheduled row |
 | Re-audit | ignore lists, rules that caught nothing, new numbers | rerun `anti-slop-audit` when the plan says |
 
@@ -95,12 +97,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@<pinned>
-      # the same pnpm/node setup and install steps the other jobs use
+      # the same package manager and Node setup and install steps the other jobs use
+      # <run>: the project's script runner, silenced (`npm run -s`, `pnpm -s`, `yarn -s`, `bun run --silent`)
       - run: |
           {
-            echo '## Duplicates'; pnpm -s dup:top || true
-            echo '## react-doctor'; pnpm -s react-doctor | tail -n 40 || true
-            echo '## Mutation'; pnpm -s mutation | tail -n 40 || true
+            echo '## Duplicates'; <run> dup:top || true
+            echo '## react-doctor'; <run> react-doctor | tail -n 40 || true
+            echo '## Mutation'; <run> mutation | tail -n 40 || true
             echo "Full reports: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           } > report.md 2>&1
       - uses: actions/upload-artifact@<pinned>
@@ -151,9 +154,11 @@ One flag per PR. Turn on `strict` before the others.
 
 **Never `!`.** Section 3's `no-non-null-assertion` should already be an error, so the shortcut fails lint.
 
-**`exactOptionalPropertyTypes`:** write `prop?: T | undefined` where `undefined` is passed on purpose, and use conditional spreads (`...(x !== undefined && { x })`) where it isn't.
+**`exactOptionalPropertyTypes`** goes in when the plan's variant says so: always on, or count-gated. Write `prop?: T | undefined` where `undefined` is passed on purpose, and use conditional spreads (`...(x !== undefined && { x })`) where it isn't.
 
 **Framework checkers:** if the project also runs `astro check`, `vue-tsc`, or `svelte-check`, those must pass too. They see files tsc doesn't.
+
+**JavaScript projects:** `checkJs` with JSDoc types gets the same checks. Turn it on per directory (a `// @ts-check` header, or a `jsconfig.json`/`tsconfig.json` with `allowJs` and `checkJs` per folder), the way a large flag splits.
 
 **Too many errors for one PR** (the plan says when): split by top-level directory. Each PR fixes one directory with the flag set only locally (`tsc --noEmit --noUncheckedIndexedAccess | grep '^src/<dir>/'`). The last PR flips the flag in `tsconfig.json`.
 
@@ -164,7 +169,7 @@ One flag per PR. Turn on `strict` before the others.
 | sonarjs | `eslint-plugin-sonarjs`, `sonarjs.configs.recommended` | `jsPlugins: ["eslint-plugin-sonarjs"]` plus the rule list |
 | unnecessary effects | `eslint-plugin-react-you-might-not-need-an-effect`, `.configs.recommended` | `jsPlugins`, rules `react-you-might-not-need-an-effect/*` |
 | test assertions | `@vitest/eslint-plugin` (`expect-expect`, `no-focused-tests`) or `eslint-plugin-jest` | native `vitest/expect-expect`, `vitest/no-focused-tests` (or `jest/…`) |
-| Playwright | `eslint-plugin-playwright`, `configs['flat/recommended']` on the e2e glob | `jsPlugins`, rules in an `overrides` entry for the e2e glob |
+| e2e | `eslint-plugin-playwright`, `configs['flat/recommended']` on the e2e glob (Cypress: `eslint-plugin-cypress` recommended) | `jsPlugins`, rules in an `overrides` entry for the e2e glob |
 | accessibility | `eslint-plugin-jsx-a11y` recommended | native `jsx-a11y/*` |
 | TypeScript shortcuts | `typescript-eslint` | native `typescript/no-explicit-any`, `no-non-null-assertion`, `consistent-type-definitions`, `explicit-module-boundary-types` |
 
@@ -223,7 +228,10 @@ oxlint shape (warnings first; promote later):
 - **`ban-ts-comment`:** its default allows `@ts-expect-error` with any description, and migration tools write one themselves, so count `@ts-expect-error`, `@ts-ignore`, and `@ts-nocheck` directly (the probe's `suppressions`) and treat a generated description as no reason. Each one becomes a real type: an ambient declaration for a global, a typed lookup map instead of an indexed object literal.
 - **Effect rules:** state copied from the URL becomes a value derived in render; browser state (`document.readyState`, a media query) comes from `useSyncExternalStore` with an explicit server snapshot. On SSR and islands frameworks, an effect that sets state after mount to avoid a hydration mismatch is often legitimate: if the project relies on that pattern, keep `no-initialize-state` as a warning and document the pattern in the rules file, so the agent knows which hits are by design.
 
-**Promoting** a rule means making it an error once its count is zero, or once it catches a real bug.
+**Promoting** a rule means making it an error. When depends on the plan's backlog variant:
+
+- **Gradual:** once it catches a real bug (a PR or review comment names it). Old code stays as-is: the changed-files hook clears its hits as files get touched. The warnings review step, a month after the rules land, promotes what caught something, deletes what only made noise, and leaves the rest as warnings until the re-audit.
+- **Cleanup:** once its count is zero, or once it catches a real bug. The rest of this section is the cleanup variant.
 
 **The end state has no `warn`.** The hooks block warnings in changed files, so a warning is an error that lands later, on whoever next edits the file in an unrelated PR. The preset's last step promotes every rule, `cognitive-complexity` included, once what's left can be split in one PR (about ten functions); otherwise the plan names a follow-up step. Delete a rule that produced only noise for a month. A rule that misfires on a whole path category (build scripts: `no-os-command-from-path`, `pseudo-random`) gets an override with a reason, not one disable at a time; a rule that's noise repo-wide but signal in one place stays out of the list and comes on through an override only there (`super-linear-regex` where a regex meets request input).
 
@@ -300,8 +308,8 @@ oxlint shape (warnings first; promote later):
 The template is in `assets/lint-rules/`. Copy it to `scripts/lint-rules/`, delete the example rule, and write the project's rules. Each rule has three parts:
 
 - **Matcher:** as narrow as the defect's pattern, and as wide as its source. When a tool or a habit produced the bug (a design tool's export, a copied snippet), check everything that source produces, not only the files the fix touched.
-- **Message:** what failed, why (the incident in one sentence, with numbers if there were any), and what to do instead. A behavior filter has no incident: its message carries the measured cost of the default it cancels (bytes shipped, renders, a timing on a realistic input).
-- **`docs.url`:** the PR, issue, or commit; for a behavior filter, the PR that wrote the convention.
+- **Message:** what failed, why (the incident in one sentence, with numbers if there were any), and what to do instead. A default override has no incident: its message carries the measured cost of the default it cancels (bytes shipped, renders, a timing on a realistic input).
+- **`docs.url`:** the PR, issue, or commit; for a default override, the PR that wrote the convention.
 
 **Count with the real rule before picking the level.** The audit's count comes from a naive scan and is an upper bound. The rule resolves what the scan guessed at, and its count decides warning or error. A hit in dead code gets deleted, not fixed.
 
@@ -320,16 +328,18 @@ The template is in `assets/lint-rules/`. Copy it to `scripts/lint-rules/`, delet
 
 **CSS scars** (a stylelint rule) follow the same idea with `stylelint.createPlugin`. Put them in `scripts/lint-rules/stylelint/` and test them by linting inline CSS through stylelint's Node API (`stylelint.lint({ code, config })`).
 
-**Scars in files no import reaches** (SVGs, images, content data) are a unit test that walks those files, not a lint rule. Add the files to the test's CI changes filter and to the Stop hook's trigger: a filter keyed on code skips a change that touches only assets.
+**Scars in files no import reaches** (SVGs, images, content data) are a unit test that walks those files, not a lint rule. Add the files to the test's CI changes filter and to the agent hook's trigger: a filter keyed on code skips a change that touches only assets.
 
 ## 6. Agent rules and hooks
 
 **Rules file:** add the Conventions section above.
 
-**Stop hook** (Claude Code):
+**Agent hook.** One script, wired into every agent in the plan's Stack that has an after-turn hook:
 
 - **If the project already has one,** add the new checks to whatever it runs.
-- **If not,** copy `assets/agent-check.sh` to `scripts/agent-check.sh`, delete the lines for tools the project doesn't use, swap `oxlint` for `eslint --max-warnings=0` if needed, and wire it in `.claude/settings.json` as its header shows.
+- **If not,** copy `assets/agent-check.sh` to `scripts/agent-check.sh`, delete the lines for tools the project doesn't use, and keep the lint line for the project's linter (the script has oxlint, ESLint, and Biome forms).
+- **Claude Code:** a `Stop` hook in `.claude/settings.json`, as the script's header shows.
+- **Other agents** (Cursor, Codex, Gemini CLI, Copilot): wire the same script to the agent's own after-turn hook if it has one. Check its current docs for the event name and how a hook sends findings back. An agent without one is covered by pre-commit only: say so in the PR and in the plan's Assumptions.
 
 The hook exits 2 so Claude Code sends the findings back and the agent fixes them before it finishes. It stands down on the second block in a row so an unfixable finding can't loop. That's why one block must carry every failure: the script runs its checks in parallel and reports them all. A hook that chains checks with `&&` reports only the first failure, and the stand-down then skips the rest until the next prompt.
 
@@ -337,9 +347,7 @@ The hook exits 2 so Claude Code sends the findings back and the agent fixes them
 
 **Trigger each check on what it reads.** The template lints changed source files, but runs the whole-project checks on any change outside the content folders: tsc and the tests read imported JSON, `package.json`, and `tsconfig.json`, and knip's plugins read the configs and workflows they know, so a turn that edits only one of those can still break the build or orphan a module.
 
-**Pre-commit:** the file-scoped lint for humans, plus any whole-project check that takes under a second (jscpd at zero, section 9), through the project's hook tool (see Adapting to the stack).
-
-**Other agents:** Cursor, Codex, and others have their own hook or rules mechanisms. Wire the same script where the project uses them, and say in the PR which agents are covered.
+**Pre-commit:** the file-scoped lint, plus any whole-project check that takes under a second (jscpd at zero, section 9), through the project's hook tool (see Adapting to the stack). It covers humans and every agent that commits.
 
 ## 7. Mutation testing
 
@@ -366,7 +374,12 @@ The hook exits 2 so Claude Code sends the findings back and the agent fixes them
 - `mutation`: `stryker run`.
 - `mutation:changed`: `stryker run --mutate "$(node scripts/changed-mutants.mjs origin/<default-branch>)"`. Copy `assets/scripts/changed-mutants.mjs`.
 
-**CI:** a non-blocking job on pull requests only, with full history (GitHub Actions: `continue-on-error: true`, `fetch-depth: 0`):
+**CI:** a job on pull requests only, with full history (GitHub Actions: `fetch-depth: 0`). The plan's Variants say which kind:
+
+- **Required:** in the branch's required checks. With `thresholds.break: null` it fails only when Stryker itself breaks, never on the score.
+- **Report-only:** `continue-on-error: true`, and it stays out of the required checks, so a slow run never holds a PR.
+
+Either way it runs these steps:
 
 1. Compute the changed files with `changed-mutants.mjs`.
 2. Run Stryker on them with `--reporters json`.
@@ -414,7 +427,7 @@ The comment lists surviving mutants on changed lines.
 - **Test files reported unused:** the test runner isn't recognized (custom wrappers, `node --test` through another binary). Add the test glob to `entry`.
 - **Dependencies used by string** in a config: `ignoreDependencies`, with the reason.
 
-**Cleanup PR:** delete what's verifiably dead (grep before deleting), remove unused exports or make them file-local, and drop unused dependencies. Then add `deadcode: knip` and a CI step. Once it reports zero, the step is the gate and `knip --cache` can join the Stop hook.
+**Cleanup PR:** delete what's verifiably dead (grep before deleting), remove unused exports or make them file-local, and drop unused dependencies. Then add `deadcode: knip` and a CI step. Once it reports zero, the step is the gate and `knip --cache` can join the agent hook.
 
 knip doesn't track object properties, so a dead export can be the only reader of metadata on live entries (a name or description on each). Once the export goes, delete that metadata too.
 
@@ -431,7 +444,7 @@ knip doesn't track object properties, so a dead export can be the only reader of
 - Modules loaded by `import.meta.glob` or by string need an entry or that marker.
 - Script: `dead-files`. **Prove it works:** add an unreferenced file, see it reported, delete it.
 
-**Stale mocks:** copy `find-dead-mocks.mjs` when the project uses `vi.mock`. It checks that mocked modules exist and that factory keys are real exports. Script: `dead-mocks`. Prove it with a mock of a renamed export.
+**Stale mocks:** copy `find-dead-mocks.mjs` when the project uses `vi.mock` or `jest.mock`. It checks that mocked modules exist and that factory keys are real exports. It reads test files under `src/`, `test/`, and `tests/` plus the Vitest or Jest setup file: adjust the globs to the project's. Script: `dead-mocks`. Prove it with a mock of a renamed export.
 
 ## 9. Duplicates
 
@@ -455,7 +468,7 @@ knip doesn't track object properties, so a dead export can be the only reader of
 - `dup:new`: both configs with `--baseline-from-ref origin/<default-branch> --fail-on-new-clones`. Fails only on clones the branch adds; CI runs this while there's a backlog.
 - `dup:top`: `jscpd -r json -o reports/jscpd -s && node scripts/jscpd-top.mjs`. Groups the backlog by fragment for triage. Copy `assets/scripts/jscpd-top.mjs`.
 
-**At zero clones, drop the baseline.** Baseline mode is for a backlog. Once the count is zero, set `"threshold": 0` in each config and run jscpd plain: it fails on any clone and is fast enough for pre-commit as well as the Stop hook and CI.
+**At zero clones, drop the baseline.** Baseline mode is for a backlog. Once the count is zero, set `"threshold": 0` in each config and run jscpd plain: it fails on any clone and is fast enough for pre-commit as well as the agent hook and CI.
 
 **The backlog** goes into later plan steps: one PR per worthwhile merge, named in the plan.
 
@@ -476,12 +489,12 @@ The worked example is GitHub Actions, matching the project's existing setup step
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@<pinned>
-      # the same pnpm/node setup and install steps the other jobs use
+      # the same package manager and Node setup and install steps the other jobs use
       - name: deadcode
-        run: pnpm deadcode
+        run: <run> deadcode
       - name: dup
         if: ${{ !cancelled() }} # still runs when the step above fails, so one run reports both
-        run: pnpm dup
+        run: <run> dup
 ```
 
 **Fetch history for diff-based jobs:** `dup:new` and react-doctor on the diff need the full history and the PR's target branch as the base ref (GitHub Actions: `fetch-depth: 0` and `origin/${{ github.base_ref }}`).
@@ -515,7 +528,7 @@ jobs:
             const files = pr && (await github.paginate(github.rest.pulls.listFiles, { ...context.repo, pull_number: pr.number }))
               .flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]));
             // Inputs every check reads: the manifest, the lockfile, the Node version, this workflow.
-            const shared = /^(package\.json|pnpm-lock\.yaml|\.nvmrc|\.github\/workflows\/ci\.yml)$/;
+            const shared = /^(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|\.nvmrc|\.github\/workflows\/ci\.yml)$/;
             const checks = {
               // a type-aware linter also reads imported JSON; add the framework's template extension
               lint: /\.([cm]?[jt]sx?|json)$/,
@@ -543,7 +556,10 @@ jobs:
 
 ## react-doctor
 
-Every React project gets it in the review flow, in three parts: set it up as a plain command, clean up the errors, then gate on them.
+Every React project gets it as a command. The plan's Variants say how far it goes:
+
+- **Report:** the command and the scheduled full run (Running often), no cleanup steps and no gate. Findings get fixed in code a PR already touches. Only **Setup** and **Triage notes** below apply.
+- **Gated:** three parts: set it up as a plain command, clean up the errors, then gate on them. All of this section applies.
 
 **Setup** goes in with the other detectors, no gate yet, and by hand rather than with `react-doctor install`: that command writes an unversioned pre-commit block into `.git/hooks` and adds a `doctor` script without the release-age gate.
 
@@ -576,7 +592,7 @@ Every React project gets it in the review flow, in three parts: set it up as a p
 
 The last step of the plan. A line that a check now enforces is a second copy of the rule: it competes for the model's attention, and the two drift apart when the config changes.
 
-**Inventory what blocks.** A check enforces a rule only where it fails: a tsconfig flag, a lint rule at `error`, a warning the hooks deny on changed files, a boundary policy, a project rule in `scripts/lint-rules/`, knip or jscpd at their gate, react-doctor with `--blocking`, the Stop hook, pre-commit, and the CI jobs that branch protection requires. A warning CI only prints isn't enforcement: its line stays until the rule is promoted.
+**Inventory what blocks.** A check enforces a rule only where it fails: a tsconfig flag, a lint rule at `error`, a warning the hooks deny on changed files, a boundary policy, a project rule in `scripts/lint-rules/`, knip or jscpd at their gate, react-doctor with `--blocking`, the agent hook, pre-commit, and the CI jobs that branch protection requires. A warning CI only prints isn't enforcement: its line stays until the rule is promoted.
 
 **Read the required checks; don't trust the plan.** A job nobody added to branch protection fails red without blocking a merge. Compare the plan's gates with the settings (`gh api repos/{owner}/{repo}/rules/branches/<default>` for rulesets, `gh api repos/{owner}/{repo}/branches/<default>/protection` for classic protection), put any gap in the PR, and make the rules file's "blocks in CI" wording match what really blocks.
 
@@ -584,7 +600,7 @@ The last step of the plan. A line that a check now enforces is a second copy of 
 
 **Read every rules file** the probe lists (its `scars` section prints their prohibition lines, code-like ones first), plus the files they import. For each line that tells the model what to do or not do:
 
-- **A check fails on exactly what the line forbids** ("never use `any`" with `no-explicit-any` at `error`, "run the tests before you finish" with the Stop hook): delete the line. If it carried a reason, move the reason next to the code it explains: the rule's message, a comment in the config, or the header of the test that pins the contract.
+- **A check fails on exactly what the line forbids** ("never use `any`" with `no-explicit-any` at `error`, "run the tests before you finish" with the agent hook): delete the line. If it carried a reason, move the reason next to the code it explains: the rule's message, a comment in the config, or the header of the test that pins the contract.
 - **A good/bad example pair whose bad half a check rejects:** delete only that half. The good half is still the convention.
 - **A check covers the mechanical part and the line carries judgment** ("prefer `Map` over an index lookup that may miss" next to `noUncheckedIndexedAccess`): cut it to the judgment half.
 - **The line claims a tool does something automatically** ("import order is auto-fixed"): delete it either way. If the claim is true, the model has nothing to do; if it's false, the line misleads. Check which, say so in the PR, and treat a false one whose convention still matters as a scar-rule candidate.

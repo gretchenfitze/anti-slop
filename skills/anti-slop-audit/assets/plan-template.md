@@ -6,6 +6,23 @@ Audited <YYYY-MM-DD> with the anti-slop-audit skill, based on [Yuri Mikhin](http
 
 <Two to four sentences. How long the code will live, who reads it, what a bug costs, and so how much of this the project needs.>
 
+## Stack
+
+<One line per dimension of moves.md's stack table, as the probe found it: framework, language, linter, unit tests, e2e, API, package manager, git hooks, agents, CI. Rollout steps pick their tools from here.>
+
+## Variants
+
+The four choices from moves.md, **Variants**. Rollout steps follow the side chosen here. <Drop the rows that don't apply.>
+
+| Point | Chosen | Why, in this repo's numbers |
+|---|---|---|
+| Lint backlog | <gradual: warnings on changed files, old code as-is / cleanup: fixed to zero, no `warn` left> | |
+| Mutation testing in CI | <required, no threshold / report-only> | |
+| `exactOptionalPropertyTypes` | <always on / count-gated> | |
+| react-doctor | <report: command and scheduled run / gated: errors block> | |
+
+<Option 1 is the default; mark a row the team hasn't confirmed.>
+
 ## Assumptions
 
 <Anything the audit couldn't confirm from the repo and nobody was around to answer: branch protection, a rule disabled on purpose, whether a hook runs for every agent. One line each, so the team can correct them before step 1.>
@@ -40,7 +57,7 @@ Seconds are from the audit run; CI-only jobs (e2e) from recent CI runs. Each rol
 
 | Moment | Budget | Checks (seconds here) |
 |---|---|---|
-| Agent turn: Stop hook (<agents covered>) | ~30 s total | |
+| Agent turn: after-turn hook (<agents covered>) | ~30 s total | |
 | Pre-commit | ~10 s | |
 | <PR CI, or push CI and why> | <slowest existing job> | |
 | Scheduled: <weekly or monthly>, read by <who> | none | <or "none: why"> |
@@ -50,7 +67,7 @@ Seconds are from the audit run; CI-only jobs (e2e) from recent CI runs. Each rol
 
 | Incident or measured cost | What the rule matches | Hits now (grep: an upper bound) | Message (what failed, why, what instead) |
 |---|---|---|---|
-| <commit sha, doc line, or the cost a behavior filter cancels> | | | |
+| <commit sha, doc line, or the cost a default override cancels> | | | |
 
 ## Skipped
 

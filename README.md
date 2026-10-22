@@ -21,6 +21,17 @@ It covers three stages:
 - **A prototype turning into a product** gets a plan scoped to the code that survives, with new slop stopped before the old gets cleaned.
 - **A project just starting** gets a short day-one plan with every check as an error, since there's nothing to clean up yet. If the stack is Vite + React or NestJS, [Yuri Mikhin](https://github.com/mikhin)'s [ts-workbench](https://github.com/mikhin/ts-workbench) template is often the faster start, and the audit says so.
 
+The audit reads the stack from the repo (linter, test runner, e2e, API, package manager, git hooks, agents, CI) and picks tools to match: rule sets for ESLint, oxlint, or Biome, Jest or Vitest mock checks, the project's package manager in every command.
+
+Four choices have two reasonable answers. The plan takes option 1, what the article recommends, and the audit's report asks whether to switch any:
+
+| Choice | Option 1 (the article) | Option 2 |
+|---|---|---|
+| Lint backlog | **Gradual:** warnings on changed files, old code left as-is, a rule promoted once it catches a real bug | **Cleanup:** PRs that fix the backlog to zero, no `warn` left |
+| Mutation testing in CI | **Required,** with no score threshold | **Report-only,** never blocks a PR |
+| `exactOptionalPropertyTypes` | **Always on** | **Count-gated:** on only when the error count is small |
+| react-doctor (React) | **Report:** a command and a scheduled run | **Gated:** errors cleaned up, then blocking |
+
 ## Install
 
 Install both skills: the rollout runs the audit's probe from the folder next to it.
@@ -72,7 +83,7 @@ Git, Node 22+ with npm 11.10+, network access for `npx`, and installed project d
 
 ## Credits
 
-The detector scripts in `skills/anti-slop-rollout/assets/scripts/` (dead files, dead mocks, jscpd triage, mutation on changed files, mutation PR report) come from [Yuri Mikhin](https://github.com/mikhin)'s [ts-workbench](https://github.com/mikhin/ts-workbench), a template repo with all ten moves applied. `resolve-module.mjs` is generalized here for existing repos.
+The detector scripts in `skills/anti-slop-rollout/assets/scripts/` (dead files, dead mocks, jscpd triage, mutation on changed files, mutation PR report) come from [Yuri Mikhin](https://github.com/mikhin)'s [ts-workbench](https://github.com/mikhin/ts-workbench), a template repo with all ten moves applied. `resolve-module.mjs` is generalized here for existing repos, and `find-dead-mocks.mjs` for Jest as well as Vitest.
 
 ## License
 
